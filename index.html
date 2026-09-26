@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Turret Lab</title>
+  </head>
+  <body>
+    <div id="app">
+      <header class="topbar">
+        <div class="brand"><span class="brand-mark">◈</span><div><strong>TURRET LAB</strong><small>3D TARGET RANGE</small></div></div>
+        <div class="top-meta"><span class="live-dot"></span> SANDBOX SIMULATION <span class="divider"></span> RANGE 01</div>
+      </header>
+      <main class="layout">
+        <section class="viewport-panel">
+          <div class="viewport-head"><div><span class="eyebrow">LIVE VIEW</span><h1>Target range</h1></div><div class="view-tag">THIRD PERSON <span>●</span></div></div>
+          <div id="scene-wrap"><canvas id="game-canvas"></canvas><div class="reticle"><span></span></div><div class="scene-hint">CLICK A TARGET TO AIM · SPACE TO FIRE</div><div id="impact-toast" class="impact-toast"></div></div>
+          <div class="bottom-strip"><span><b>01</b> SELECT TARGET</span><span><b>02</b> ADJUST BUILD</span><span><b>03</b> FIRE</span><button id="fullscreen-btn" title="Toggle fullscreen">⛶ FULLSCREEN</button></div>
+        </section>
+        <aside class="side-panel">
+          <section class="card status-card"><div class="card-heading"><span class="eyebrow">SESSION STATUS</span><span class="status-pill">● ACTIVE</span></div><div class="score-line"><div><strong id="score">0</strong><small>POINTS</small></div><div><strong id="targets-left">6</strong><small>TARGETS LEFT</small></div><div><strong id="hit-count">0</strong><small>HITS</small></div></div><div class="ammo-row"><div><span>MAGAZINE</span><b id="ammo-count">8 / 8</b></div><div class="ammo-track"><div id="ammo-fill"></div></div><small id="weapon-status">READY TO FIRE</small></div><div class="heat-row"><div><span>BARREL TEMP</span><b id="heat-count">0%</b></div><div class="heat-track"><div id="heat-fill"></div></div></div></section>
+          <section class="card"><div class="section-title"><div><span class="eyebrow">WORKSHOP</span><h2>Turret setup</h2></div><span class="section-icon">⚙</span></div><p class="note">Every value below is derived from the scaled physics model. Game-scale numbers, not real weapon data.</p><div class="slider-field"><label for="caliber"><span>Bore <small>projectile mass · energy · recoil</small></span><output id="caliber-value">60 mm</output></label><input id="caliber" type="range" min="12.5" max="600" step="2.5" value="60" /></div><div class="slider-field"><label for="barrel"><span>Barrel length <small>velocity · inertia · balance</small></span><output id="barrel-value">4.0 m</output></label><input id="barrel" type="range" min="2" max="8" step="0.5" value="4" /></div><div class="slider-field"><label for="magazine"><span>Magazine capacity</span><output id="magazine-value">8 rounds</output></label><input id="magazine" type="range" min="1" max="24" step="1" value="8" /><small class="tradeoff-note" id="reload-preview">Refill 1.9 s · more rounds, longer refill · new slots fill on reload</small></div><div id="derived-stats" class="derived-stats"></div><div class="mode-label">SHOT MODE</div><div class="mode-switch"><button class="mode active" data-mode="focused"><strong>◉ Focused</strong><small>Full-mass shot · strong hit · more heat</small></button><button class="mode" data-mode="burst"><strong>✧ Burst</strong><small>Light shell · splash · less heat</small></button></div></section>
+          <section class="card target-card"><div class="section-title"><div><span class="eyebrow">RANGE</span><h2>Targets</h2></div><button id="reset-btn" class="text-btn">RESET ↻</button></div><p class="target-help">Select a shape below or in the scene.</p><div id="target-list" class="target-list"></div></section>
+          <div class="controls-help"><span>CONTROLS</span><p><kbd>Tab</kbd> next target <kbd>Space</kbd> fire <kbd>R</kbd> reload <kbd>F</kbd> fullscreen</p></div>
+        </aside>
+      </main>
+    </div>
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>

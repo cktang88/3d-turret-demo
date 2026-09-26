@@ -1,0 +1,607 @@
+import * as THREE from 'three';
+import RAPIER from '@dimforge/rapier3d-compat';
+import * as B from './ballistics.js';
+import './style.css';
+
+await RAPIER.init();
+const physics = new RAPIER.World({ x: 0, y: -9.81, z: 0 });
+physics.timestep = 1 / 60;
+physics.createCollider(RAPIER.ColliderDesc.cuboid(60, 0.2, 60).setTranslation(0, -0.2, 0));
+let physicsTime = 0;
+
+const canvas = document.querySelector('#game-canvas');
+const wrap = document.querySelector('#scene-wrap');
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.35;
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color('#101d29');
+scene.fog = new THREE.Fog('#101d29', 30, 85);
+const camera = new THREE.PerspectiveCamera(50, 1, 0.1, 110);
+camera.position.set(0, 9, 18);
+camera.lookAt(0, 1.5, -7);
+scene.add(new THREE.HemisphereLight(0xb9e7ff, 0x28313a, 2.1));
+const sunlight = new THREE.DirectionalLight(0xffedce, 3.2);
+sunlight.position.set(-8, 17, 10);
+sunlight.castShadow = true;
+sunlight.shadow.mapSize.set(2048, 2048);
+sunlight.shadow.camera.left = -28;
+sunlight.shadow.camera.right = 28;
+sunlight.shadow.camera.top = 28;
+sunlight.shadow.camera.bottom = -35;
+scene.add(sunlight);
+
+const mat = (color, metalness = 0, roughness = 0.7) => new THREE.MeshStandardMaterial({ color, metalness, roughness });
+const dark = mat('#1b303a', 0.64, 0.4);
+const steel = mat('#4c6672', 0.75, 0.35);
+const edge = mat('#90aeb3', 0.62, 0.38);
+const teal = new THREE.MeshStandardMaterial({ color: '#2de5ca', emissive: '#0b9a82', emissiveIntensity: 0.35, metalness: 0.2 });
+const orange = new THREE.MeshStandardMaterial({ color: '#ffb367', emissive: '#9d481e', emissiveIntensity: 0.3 });
+const ground = new THREE.Mesh(new THREE.PlaneGeometry(120, 120), mat('#253b41'));
+ground.rotation.x = -Math.PI / 2;
+ground.receiveShadow = true;
+scene.add(ground);
+const grid = new THREE.GridHelper(120, 60, '#45636a', '#385058');
+grid.position.y = 0.012;
+scene.add(grid);
+for (let i = 0; i < 5; i++) {
+  const stripe = new THREE.Mesh(new THREE.BoxGeometry(35, 0.018, 0.045), mat('#47737a'));
+  stripe.position.set(0, 0.025, -7 - i * 7);
+  scene.add(stripe);
+}
+
+function box(parent, dimensions, position, material, bevel = false) {
+  const mesh = new THREE.Mesh(new THREE.BoxGeometry(...dimensions), material);
+  mesh.position.set(...position);
+  mesh.castShadow = true;
+  mesh.receiveShadow = true;
+  parent.add(mesh);
+  return mesh;
+}
+function cylinder(parent, top, bottom, height, position, material, sides = 24) {
+  const mesh = new THREE.Mesh(new THREE.CylinderGeometry(top, bottom, height, sides), material);
+  mesh.position.set(...position);
+  mesh.castShadow = true;
+  mesh.receiveShadow = true;
+  parent.add(mesh);
+  return mesh;
+}
+
+// A display model. Its proportions are game tuned; its motion comes from the derived physics.
+const turretBase = new THREE.Group();
+turretBase.position.set(0, 0, 5.5);
+scene.add(turretBase);
+cylinder(turretBase, 2.35, 2.55, 0.45, [0, 0.26, 0], dark, 12);
+cylinder(turretBase, 2.1, 2.12, 0.16, [0, 0.58, 0], edge, 24);
+const azimuth = new THREE.Group();
+azimuth.position.y = 0.65;
+turretBase.add(azimuth);
+cylinder(azimuth, 1.85, 2.05, 0.32, [0, 0.12, 0], dark, 12);
+const housing = cylinder(azimuth, 1.42, 1.66, 1.15, [0, 0.84, 0.25], steel, 8);
+housing.rotation.y = Math.PI / 8;
+box(azimuth, [2.65, 0.3, 1.95], [0, 1.41, 0.28], dark);
+box(azimuth, [1.8, 0.14, 0.9], [0, 1.58, 0.4], edge);
+for (const side of [-1, 1]) {
+  box(azimuth, [0.3, 0.7, 1.25], [side * 1.38, 0.83, 0.25], dark);
+  const vent = box(azimuth, [0.04, 0.23, 0.72], [side * 1.55, 0.93, 0.25], teal);
+  vent.material = teal;
+}
+const pivot = new THREE.Group();
+pivot.position.set(0, 1.05, -0.75);
+azimuth.add(pivot);
+const barrel = new THREE.Group();
+pivot.add(barrel);
+let barrelBody;
+let muzzleLocal = new THREE.Vector3();
+function rebuildBarrel() {
+  if (barrelBody) {
+    barrel.remove(barrelBody);
+    barrelBody.traverse((child) => child.geometry?.dispose());
+  }
+  barrelBody = new THREE.Group();
+  barrel.add(barrelBody);
+  const length = state.barrel;
+  const radius = 0.16 + Math.sqrt(state.caliber / 600) * 0.17;
+  const rootRadius = radius * 1.55;
+  const tube = cylinder(barrelBody, radius * 1.16, radius, length, [0, 0, -0.6 - length / 2], steel, 24);
+  tube.rotation.x = Math.PI / 2;
+  const sleeveLength = Math.min(1.6, length * 0.45);
+  const sleeve = cylinder(barrelBody, rootRadius, radius * 1.12, sleeveLength, [0, 0, -0.6 - sleeveLength / 2], steel, 24);
+  sleeve.rotation.x = Math.PI / 2;
+  const collar = cylinder(barrelBody, rootRadius * 1.08, rootRadius * 1.08, 0.32, [0, 0, -0.7], dark);
+  collar.rotation.x = Math.PI / 2;
+  const tip = cylinder(barrelBody, radius * 1.18, radius * 1.18, 0.35, [0, 0, -0.6 - length], edge);
+  tip.rotation.x = Math.PI / 2;
+  const bore = new THREE.Mesh(new THREE.CircleGeometry(radius * 0.7, 24), dark);
+  bore.position.set(0, 0, -0.6 - length - 0.182);
+  bore.rotation.y = Math.PI;
+  barrelBody.add(bore);
+  muzzleLocal.set(0, 0, -0.6 - length - 0.2);
+}
+
+const specs = [
+  { name: 'HEX PLATE', shape: 'hex', tier: 'LIGHT', hp: 2, x: -12, z: -14, color: '#4ce1d2' },
+  { name: 'CORE BLOCK', shape: 'block', tier: 'HEAVY', hp: 4, x: -6.5, z: -21, color: '#ffbc75' },
+  { name: 'RING', shape: 'ring', tier: 'LIGHT', hp: 2, x: 0.5, z: -15, color: '#75d8ff' },
+  { name: 'WEDGE', shape: 'wedge', tier: 'MEDIUM', hp: 3, x: 6.5, z: -22, color: '#ed91a8' },
+  { name: 'TOWER', shape: 'tower', tier: 'HEAVY', hp: 4, x: 12, z: -16, color: '#d2b6ff' },
+  { name: 'DISC', shape: 'disc', tier: 'MEDIUM', hp: 3, x: 3.5, z: -29, color: '#b2df8c' },
+];
+const targets = [];
+const targetMeshes = [];
+function targetShape(spec, group) {
+  const color = mat(spec.color, 0.28, 0.35);
+  if (spec.shape === 'hex') {
+    const shape = cylinder(group, 1.25, 1.25, 0.45, [0, 1.8, 0], color, 6);
+    shape.rotation.x = Math.PI / 2;
+  } else if (spec.shape === 'ring') {
+    const ring = new THREE.Mesh(new THREE.TorusGeometry(1.12, 0.34, 10, 28), color);
+    ring.position.y = 1.9;
+    ring.castShadow = true;
+    group.add(ring);
+    const center = new THREE.Mesh(new THREE.SphereGeometry(0.38, 18, 12), orange);
+    center.position.y = 1.9;
+    group.add(center);
+  } else if (spec.shape === 'block') {
+    box(group, [2.25, 2.05, 0.8], [0, 1.95, 0], color);
+    box(group, [1.55, 0.22, 0.88], [0, 3.08, 0], edge);
+  } else if (spec.shape === 'wedge') {
+    const wedge = new THREE.Mesh(new THREE.ConeGeometry(1.35, 2.5, 3), color);
+    wedge.rotation.z = Math.PI / 2;
+    wedge.position.y = 2;
+    wedge.castShadow = true;
+    group.add(wedge);
+  } else if (spec.shape === 'tower') {
+    cylinder(group, 0.82, 1.18, 3.2, [0, 2.25, 0], color, 8);
+    box(group, [2.2, 0.22, 1.2], [0, 3.9, 0], edge);
+  } else {
+    const disc = cylinder(group, 1.4, 1.4, 0.36, [0, 1.9, 0], color, 24);
+    disc.rotation.x = Math.PI / 2;
+    cylinder(group, 0.44, 0.44, 0.4, [0, 1.9, 0.25], orange, 24).rotation.x = Math.PI / 2;
+  }
+  cylinder(group, 0.07, 0.07, 1.35, [0, 0.7, 0], dark, 10);
+  cylinder(group, 1.5, 1.5, 0.14, [0, 0.08, 0], dark, 18);
+  const halo = new THREE.Mesh(new THREE.RingGeometry(1.58, 1.68, 32), new THREE.MeshBasicMaterial({ color: '#2de5ca', side: THREE.DoubleSide }));
+  halo.rotation.x = -Math.PI / 2;
+  halo.position.y = 0.16;
+  group.add(halo);
+  return halo;
+}
+specs.forEach((spec, id) => {
+  const group = new THREE.Group();
+  group.position.set(spec.x, 0, spec.z);
+  scene.add(group);
+  const halo = targetShape(spec, group);
+  group.traverse((child) => { if (child.isMesh && child !== halo) { child.userData.targetId = id; targetMeshes.push(child); } });
+  targets.push({ ...spec, id, maxHp: spec.hp, group, halo, alive: true, flash: 0 });
+});
+
+const state = {
+  caliber: 60, barrel: 4, magazine: 8, rounds: 8, mode: 'focused',
+  selected: 0, score: 0, hits: 0, cycle: 0, reload: 0, temp: 0, queued: false,
+  yaw: 0, pitch: 0, yawVel: 0, pitchVel: 0, recoil: 0, recoilScale: 1,
+  shots: [], effects: [], debris: [], toast: '', toastTime: 0,
+  build: null, driveYaw: null, driveElev: null, aim: null, aimKey: '', aimAge: 0, warned: '',
+};
+rebuildBarrel();
+const raycaster = new THREE.Raycaster();
+const pointer = new THREE.Vector2();
+const targetList = document.querySelector('#target-list');
+function targetCenter(target) { return new THREE.Vector3(target.x, target.shape === 'tower' ? 2.6 : 1.9, target.z); }
+function selectTarget(id) {
+  if (!targets[id]?.alive) return;
+  state.selected = id;
+  state.queued = false;
+  state.warned = '';
+  state.aimKey = '';
+  refreshUI();
+}
+function nextTarget() {
+  for (let offset = 1; offset <= targets.length; offset++) {
+    const id = (state.selected + offset) % targets.length;
+    if (targets[id].alive) { selectTarget(id); return; }
+  }
+}
+function announce(message) { state.toast = message; state.toastTime = 1.5; }
+function rebuildStats() {
+  state.build = B.deriveBuild(state.caliber, state.barrel, state.magazine, state.rounds);
+  state.driveYaw = B.driveYaw(state.build.inertiaYaw);
+  state.driveElev = B.driveElev(state.build.inertiaElev, B.gravityMoment(state.barrel, state.caliber, 0));
+  document.querySelector('#reload-preview').textContent = `Refill ${state.build.reloadS.toFixed(1)} s · more rounds, longer refill · new slots fill on reload`;
+  refreshDerived();
+}
+function reload() {
+  if (state.reload > 0 || state.rounds === state.magazine) return;
+  state.reload = B.magazineRefill(state.caliber, state.magazine);
+  state.queued = false;
+  announce('RELOADING');
+  refreshUI();
+}
+function requestFire() {
+  if (!targets[state.selected]?.alive) { announce('SELECT A TARGET'); return; }
+  if (state.reload > 0) return;
+  if (state.rounds <= 0) { reload(); return; }
+  if (state.temp >= B.PHYS.HEAT_LOCK) { announce('COOLING · WAIT'); return; }
+  state.queued = true;
+}
+
+const axisPoint = new THREE.Vector3(0, 1.7, 5.5);
+const _off = new THREE.Vector3();
+const _euler = new THREE.Euler();
+const _upAxis = new THREE.Vector3(0, 1, 0);
+const _turretPos = new THREE.Vector3(0, 0, 5.5);
+const _aimV = new THREE.Vector3();
+function muzzleAt(yaw, pitch, out) {
+  _aimV.copy(muzzleLocal).add(_off.set(0, 1.05, -0.75));
+  _aimV.applyEuler(_euler.set(pitch, 0, 0));
+  _aimV.y += 0.65;
+  _aimV.applyAxisAngle(_upAxis, yaw);
+  return out.copy(_aimV).add(_turretPos);
+}
+function refreshAim(dt) {
+  state.aimAge -= dt;
+  const target = targets[state.selected];
+  if (!target?.alive) { state.aim = null; return; }
+  const key = `${state.selected}|${state.caliber}|${state.barrel}|${state.mode}`;
+  if (key === state.aimKey && state.aimAge > 0) return;
+  state.aimKey = key;
+  state.aimAge = 0.2;
+  const tc = targetCenter(target);
+  let yaw = Math.atan2(-(tc.x - axisPoint.x), -(tc.z - axisPoint.z));
+  let pitch = Math.atan2(tc.y - axisPoint.y, Math.hypot(tc.x - axisPoint.x, tc.z - axisPoint.z));
+  let sol = null;
+  for (let i = 0; i < 3; i++) {
+    const s = B.solveAim(muzzleAt(yaw, pitch, new THREE.Vector3()), { x: tc.x, y: tc.y, z: tc.z }, state.caliber, state.barrel, state.mode);
+    if (!s) break;
+    sol = s;
+    if (Math.abs(s.yaw - yaw) < 1e-4 && Math.abs(s.pitch - pitch) < 1e-4) break;
+    yaw = s.yaw;
+    pitch = s.pitch;
+  }
+  state.aim = sol;
+  if (!sol && state.queued) { announce('TARGET OUT OF RANGE'); state.queued = false; }
+}
+function wrapPi(a) { return Math.atan2(Math.sin(a), Math.cos(a)); }
+function slewAxis(err, vel, drive, gravity, dt) {
+  const tauCap = Math.min(drive.tauMax, drive.pMax / Math.max(Math.abs(vel), 0.15));
+  const climb = (tauCap - gravity - drive.drag) / drive.inertia;
+  const sink = (tauCap + gravity - drive.drag) / drive.inertia;
+  const alpha = err >= 0 ? climb : sink;
+  const cmd = Math.sign(err) * Math.min(drive.omegaMax, Math.sqrt(2 * Math.max(alpha, 0.02) * 0.8 * Math.abs(err)));
+  const next = vel + THREE.MathUtils.clamp(cmd - vel, -Math.abs(alpha) * dt, Math.abs(alpha) * dt);
+  return { vel: next, blocked: err > 0 && climb <= 0 };
+}
+
+const IMPULSE_REF = B.recoilImpulse(60, 4, 'focused') / 1000;
+const _dir = new THREE.Vector3();
+const _right = new THREE.Vector3();
+const _upv = new THREE.Vector3();
+function fire() {
+  const target = targets[state.selected];
+  const mode = state.mode;
+  const m = B.modeOf(mode);
+  pivot.updateWorldMatrix(true, true);
+  const origin = pivot.localToWorld(muzzleLocal.clone());
+  const v0Real = B.muzzleVelocity(state.barrel) * m.velFrac;
+  const v0 = v0Real * B.PHYS.V_SCALE;
+  _dir.copy(state.aim.dir);
+  const angSigma = B.PHYS.SIGMA_ANG * (1 + (state.build.recoilRatio < B.PHYS.REC_OVERLOAD ? 2 : 0) + 2.5 * (Math.abs(state.yawVel) + Math.abs(state.pitchVel)));
+  _right.copy(_dir).cross(_upAxis).normalize();
+  _upv.copy(_right).cross(_dir).normalize();
+  _dir.addScaledVector(_right, B.gauss() * angSigma).addScaledVector(_upv, B.gauss() * angSigma).normalize();
+  const speed = v0 * (1 + B.gauss() * B.PHYS.SIGMA_V * (1 + state.temp / 200));
+  _dir.multiplyScalar(speed);
+  const mesh = new THREE.Mesh(new THREE.SphereGeometry(0.1 + 0.14 * (state.caliber / 100) ** (1 / 3), 12, 8), new THREE.MeshBasicMaterial({ color: mode === 'burst' ? '#ffc486' : '#8dfdf1' }));
+  mesh.position.copy(origin);
+  scene.add(mesh);
+  state.shots.push({
+    mesh, pos: { x: origin.x, y: origin.y, z: origin.z }, vel: { x: _dir.x, y: _dir.y, z: _dir.z },
+    mass: B.projectileMass(state.caliber) * m.massFrac, area: B.frontalArea(state.caliber),
+    v0Scene: v0, v0Real, targetId: target.id, mode, age: 0,
+  });
+  state.rounds--;
+  state.cycle = mode === 'focused' ? state.build.cooldownS : state.build.burstCooldownS;
+  state.temp = Math.min(100, state.temp + (mode === 'focused' ? state.build.heatPerShot : state.build.burstHeatPerShot));
+  state.recoil = 1;
+  state.recoilScale = THREE.MathUtils.clamp(state.build.impulseKNs / IMPULSE_REF, 0.3, 3);
+  if (state.build.recoilRatio < B.PHYS.REC_OVERLOAD && state.warned !== 'overload') { announce('RECOIL OVERLOAD'); state.warned = 'overload'; }
+  state.queued = false;
+  if (state.rounds === 0) announce('MAGAZINE EMPTY · PRESS R');
+  rebuildStats();
+  refreshUI();
+}
+function scatterTarget(target) {
+  const center = targetCenter(target);
+  for (let i = 0; i < 3; i++) {
+    const size = 0.58 + i * 0.14;
+    const mesh = new THREE.Mesh(new THREE.BoxGeometry(size, size, size), mat(target.color, 0.25, 0.5));
+    mesh.castShadow = true;
+    mesh.position.set(center.x + (i - 1) * 0.55, center.y + i * 0.25, center.z);
+    scene.add(mesh);
+    const body = physics.createRigidBody(RAPIER.RigidBodyDesc.dynamic().setTranslation(mesh.position.x, mesh.position.y, mesh.position.z));
+    physics.createCollider(RAPIER.ColliderDesc.cuboid(size / 2, size / 2, size / 2).setFriction(0.8).setRestitution(0.2), body);
+    body.applyImpulse({ x: (i - 1) * 0.24, y: 0.32 + i * 0.1, z: -0.35 }, true);
+    state.debris.push({ mesh, body });
+  }
+}
+function hit(target, damage) {
+  if (!target?.alive || damage <= 0) return;
+  target.hp = Math.max(0, target.hp - damage);
+  target.flash = 0.45;
+  state.hits++;
+  state.score += target.hp === 0 ? 150 : 40;
+  if (target.hp === 0) {
+    target.alive = false;
+    target.group.visible = false;
+    scatterTarget(target);
+    announce(`${target.name} CLEARED +150`);
+    nextTarget();
+    if (targets.every((item) => !item.alive)) announce('RANGE CLEARED · RESET TO PLAY AGAIN');
+  } else announce(`${target.name} HIT +40`);
+}
+const _hitPos = new THREE.Vector3();
+function impact(shot) {
+  const target = targets[shot.targetId];
+  const speed = Math.hypot(shot.vel.x, shot.vel.y, shot.vel.z);
+  const armor = B.PHYS.ARMOR[target.tier];
+  const r = B.impactResult(speed, shot.v0Scene, shot.v0Real, state.caliber, shot.mode, armor);
+  if (target.alive) hit(target, B.kineticDamage(r.energyJ, r.pen, armor));
+  let radius = 1.2;
+  if (shot.mode === 'burst') {
+    radius = B.splashRadius(state.caliber);
+    _hitPos.set(shot.pos.x, shot.pos.y, shot.pos.z);
+    for (const other of targets) {
+      if (other.id === target.id || !other.alive) continue;
+      const d = targetCenter(other).distanceTo(_hitPos);
+      if (d < radius) hit(other, B.splashDamage(state.caliber, d));
+    }
+  }
+  const pulse = new THREE.Mesh(new THREE.SphereGeometry(1, 20, 12), new THREE.MeshBasicMaterial({ color: shot.mode === 'burst' ? '#ffaf6f' : '#6fffe4', transparent: true, opacity: 0.6, wireframe: true }));
+  pulse.position.set(shot.pos.x, shot.pos.y, shot.pos.z);
+  scene.add(pulse);
+  state.effects.push({ mesh: pulse, age: 0, mode: shot.mode, max: shot.mode === 'burst' ? radius : 2 });
+  refreshUI();
+}
+function groundPuff(shot) {
+  const pulse = new THREE.Mesh(new THREE.SphereGeometry(1, 12, 8), new THREE.MeshBasicMaterial({ color: '#9db4b8', transparent: true, opacity: 0.4, wireframe: true }));
+  pulse.position.set(shot.pos.x, 0.3, shot.pos.z);
+  scene.add(pulse);
+  state.effects.push({ mesh: pulse, age: 0, mode: 'ground', max: 1.4 });
+}
+function removeShot(index) {
+  const shot = state.shots[index];
+  scene.remove(shot.mesh);
+  shot.mesh.geometry.dispose();
+  shot.mesh.material.dispose();
+  state.shots.splice(index, 1);
+}
+function reset() {
+  targets.forEach((target) => { target.hp = target.maxHp; target.alive = true; target.flash = 0; target.group.visible = true; });
+  state.shots.forEach((shot) => scene.remove(shot.mesh));
+  state.effects.forEach((effect) => scene.remove(effect.mesh));
+  state.debris.forEach(({ mesh, body }) => {
+    physics.removeRigidBody(body);
+    scene.remove(mesh);
+    mesh.geometry.dispose();
+    mesh.material.dispose();
+  });
+  state.shots = []; state.effects = []; state.debris = [];
+  physicsTime = 0;
+  state.selected = 0; state.rounds = state.magazine; state.score = 0; state.hits = 0;
+  state.cycle = 0; state.reload = 0; state.temp = 0; state.queued = false;
+  state.yawVel = 0; state.pitchVel = 0; state.warned = ''; state.aimKey = '';
+  announce('RANGE RESET');
+  rebuildStats();
+  refreshUI();
+}
+const fmtKg = (kg) => (kg >= 1000 ? `${(kg / 1000).toFixed(1)} t` : kg >= 100 ? `${kg.toFixed(0)} kg` : kg >= 10 ? `${kg.toFixed(1)} kg` : `${kg.toFixed(2)} kg`);
+const fmtEnergy = (kj) => (kj >= 1e6 ? `${(kj / 1e6).toFixed(2)} GJ` : kj >= 1000 ? `${(kj / 1000).toFixed(1)} MJ` : `${Math.round(kj)} kJ`);
+function refreshDerived() {
+  const b = state.build;
+  const wind = Math.hypot(B.PHYS.WIND.x, B.PHYS.WIND.z).toFixed(1);
+  const rows = [
+    ['PROJECTILE', fmtKg(b.projectileKg)],
+    ['ROUND', fmtKg(b.roundKg)],
+    ['MUZZLE VELOCITY', `${Math.round(b.muzzleMs)} m/s`],
+    ['MUZZLE ENERGY', fmtEnergy(b.muzzleKJ)],
+    ['RECOIL IMPULSE', `${b.impulseKNs.toFixed(1)} kN·s`],
+    ['RECOIL MARGIN', `${Math.round(b.recoilMarginPct)}%`],
+    ['BARREL MASS', fmtKg(b.barrelKg)],
+    ['TURRET MASS', `${b.turretT.toFixed(1)} t`],
+    ['INERTIA', `${Math.round(b.inertiaYaw / 1000)}k kg·m²`],
+    ['TRAVERSE ACCEL', `${Math.round(b.traverseAccelRad * 57.2958)}°/s²`],
+    ['MAX TRAVERSE', `${Math.round(b.maxTraverseRad * 57.2958)}°/s`],
+    ['ELEVATION', b.elevStalled ? 'OVERLOAD' : 'OK'],
+    ['SHOT CYCLE', `${b.cooldownS.toFixed(2)} s`],
+    ['SUSTAINED ROF', `${b.sustainedRof < 10 ? b.sustainedRof.toFixed(1) : Math.round(b.sustainedRof)} rpm`],
+    ['EFFECTIVE RANGE', `${Math.round(b.effectiveRangeM)} m`],
+    ['WIND', `${wind} u/s →`],
+  ];
+  document.querySelector('#derived-stats').innerHTML = rows.map(([k, v]) => `<div class="stat"><span>${k}</span><b>${v}</b></div>`).join('');
+}
+function refreshStatus() {
+  document.querySelector('#score').textContent = state.score;
+  document.querySelector('#hit-count').textContent = state.hits;
+  document.querySelector('#targets-left').textContent = targets.filter((target) => target.alive).length;
+  document.querySelector('#ammo-count').textContent = `${state.rounds} / ${state.magazine}`;
+  document.querySelector('#ammo-fill').style.width = `${state.rounds / state.magazine * 100}%`;
+  document.querySelector('#weapon-status').textContent = state.reload > 0 ? `RELOADING · ${state.reload.toFixed(1)} S` : state.cycle > 0 ? `CYCLING · ${state.cycle.toFixed(1)} S` : state.rounds === 0 ? 'EMPTY · PRESS R TO RELOAD' : state.temp >= B.PHYS.HEAT_LOCK ? 'COOLING · WAIT' : state.queued ? 'ALIGNING TARGET...' : 'READY TO FIRE';
+  document.querySelector('#heat-count').textContent = `${Math.round(state.temp)}%`;
+  document.querySelector('#heat-fill').style.width = `${state.temp}%`;
+}
+const fmtHp = (h) => (Number.isInteger(h) ? h : h.toFixed(1));
+function refreshUI() {
+  refreshStatus();
+  targetList.innerHTML = targets.map((target) => `<button class="target-item ${target.id === state.selected ? 'selected' : ''} ${target.alive ? '' : 'cleared'}" data-id="${target.id}" ${target.alive ? '' : 'disabled'}><span class="target-swatch" style="--swatch:${target.color}"></span><span class="target-name">${target.name}<small>${target.tier} · ${fmtHp(target.hp)}/${target.maxHp} integrity</small></span><span class="target-arrow">${target.alive ? '↗' : '✓'}</span></button>`).join('');
+}
+targetList.addEventListener('click', (event) => {
+  const button = event.target.closest('[data-id]');
+  if (button) selectTarget(Number(button.dataset.id));
+});
+canvas.addEventListener('pointerdown', (event) => {
+  const rect = canvas.getBoundingClientRect();
+  pointer.set((event.clientX - rect.left) / rect.width * 2 - 1, -(event.clientY - rect.top) / rect.height * 2 + 1);
+  raycaster.setFromCamera(pointer, camera);
+  const hitMesh = raycaster.intersectObjects(targetMeshes, false).find((hit) => targets[hit.object.userData.targetId]?.alive);
+  if (hitMesh) selectTarget(hitMesh.object.userData.targetId);
+  else requestFire();
+});
+document.querySelector('#reset-btn').addEventListener('click', reset);
+document.querySelectorAll('.mode').forEach((button) => button.addEventListener('click', () => {
+  state.mode = button.dataset.mode;
+  document.querySelectorAll('.mode').forEach((item) => item.classList.toggle('active', item === button));
+  state.aimKey = '';
+}));
+for (const [id, output, suffix, key] of [
+  ['caliber', 'caliber-value', ' mm', 'caliber'],
+  ['barrel', 'barrel-value', ' m', 'barrel'],
+  ['magazine', 'magazine-value', ' rounds', 'magazine'],
+]) {
+  document.querySelector(`#${id}`).addEventListener('input', (event) => {
+    state[key] = Number(event.target.value);
+    document.querySelector(`#${output}`).textContent = `${key === 'barrel' ? state[key].toFixed(1) : state[key]}${suffix}`;
+    if (key === 'magazine') state.rounds = Math.min(state.rounds, state.magazine);
+    if (key !== 'magazine') rebuildBarrel();
+    state.aimKey = '';
+    rebuildStats();
+    refreshUI();
+  });
+}
+function toggleFullscreen() {
+  if (document.fullscreenElement) document.exitFullscreen();
+  else wrap.requestFullscreen?.();
+}
+document.querySelector('#fullscreen-btn').addEventListener('click', toggleFullscreen);
+window.addEventListener('keydown', (event) => {
+  if (['Space', 'Tab'].includes(event.code)) event.preventDefault();
+  if (event.repeat) return;
+  if (event.code === 'Space') requestFire();
+  if (event.code === 'Tab') nextTarget();
+  if (event.code === 'KeyR') reload();
+  if (event.code === 'KeyF') toggleFullscreen();
+  if (event.code === 'Escape' && document.fullscreenElement) document.exitFullscreen();
+});
+
+const desired = new THREE.Vector3();
+function update(dt) {
+  state.cycle = Math.max(0, state.cycle - dt);
+  state.temp = Math.max(0, state.temp - state.build.coolRate * dt);
+  if (state.reload > 0) {
+    state.reload = Math.max(0, state.reload - dt);
+    if (state.reload === 0) { state.rounds = state.magazine; rebuildStats(); announce('MAGAZINE READY'); }
+  }
+  state.toastTime = Math.max(0, state.toastTime - dt);
+  state.recoil = Math.max(0, state.recoil - dt * 4.8);
+  barrel.position.z = Math.sin(state.recoil * Math.PI) * 0.35 * state.recoilScale;
+  refreshAim(dt);
+  const target = targets[state.selected];
+  if (target?.alive && state.aim) {
+    const errYaw = wrapPi(state.aim.yaw - state.yaw);
+    const errPitch = state.aim.pitch - state.pitch;
+    const yawCtl = slewAxis(errYaw, state.yawVel, state.driveYaw, 0, dt);
+    const gravity = B.gravityMoment(state.barrel, state.caliber, state.pitch);
+    const pitchCtl = slewAxis(errPitch, state.pitchVel, state.driveElev, gravity, dt);
+    state.yawVel = yawCtl.vel;
+    state.yaw += state.yawVel * dt;
+    if (pitchCtl.blocked) {
+      state.pitchVel = Math.max(0, state.pitchVel - dt * 2);
+      state.pitch = Math.max(-0.02, state.pitch - dt * 0.01);
+      if (state.warned !== 'stall') { announce('ELEVATION OVERLOAD'); state.warned = 'stall'; }
+    } else {
+      state.pitchVel = pitchCtl.vel;
+      state.pitch += state.pitchVel * dt;
+    }
+    azimuth.rotation.y = state.yaw;
+    pivot.rotation.x = state.pitch;
+    if (state.queued && state.cycle === 0 && state.reload === 0 && Math.abs(errYaw) < 0.05 && Math.abs(errPitch) < 0.05) fire();
+  }
+  for (let i = state.shots.length - 1; i >= 0; i--) {
+    const shot = state.shots[i];
+    shot.age += dt;
+    let remain = dt;
+    while (remain > 0) {
+      const h = Math.min(1 / 240, remain);
+      B.stepFlight(shot, h);
+      remain -= h;
+    }
+    shot.mesh.position.set(shot.pos.x, shot.pos.y, shot.pos.z);
+    const hitTarget = targets[shot.targetId];
+    const tc = targetCenter(hitTarget);
+    const dist = Math.hypot(shot.pos.x - tc.x, shot.pos.y - tc.y, shot.pos.z - tc.z);
+    if (hitTarget.alive && dist < 1.35) { removeShot(i); impact(shot); continue; }
+    if (shot.pos.y <= 0.05 || shot.age > 6) { removeShot(i); groundPuff(shot); }
+  }
+  for (let i = state.effects.length - 1; i >= 0; i--) {
+    const effect = state.effects[i];
+    effect.age += dt;
+    const rate = effect.mode === 'burst' ? 12 : effect.mode === 'ground' ? 5 : 6;
+    effect.mesh.scale.setScalar(Math.min(effect.max, 0.25 + effect.age * rate));
+    effect.mesh.material.opacity = Math.max(0, 0.7 - effect.age * 1.5);
+    if (effect.age > 0.47) { scene.remove(effect.mesh); effect.mesh.geometry.dispose(); effect.mesh.material.dispose(); state.effects.splice(i, 1); }
+  }
+  physicsTime += dt;
+  while (physicsTime >= physics.timestep) {
+    physics.step();
+    physicsTime -= physics.timestep;
+  }
+  state.debris.forEach(({ mesh, body }) => {
+    const position = body.translation();
+    const rotation = body.rotation();
+    mesh.position.set(position.x, position.y, position.z);
+    mesh.quaternion.set(rotation.x, rotation.y, rotation.z, rotation.w);
+  });
+  targets.forEach((item) => {
+    item.halo.material.color.set(item.id === state.selected && item.alive ? '#2de5ca' : '#476b73');
+    item.halo.visible = item.alive;
+    if (item.flash > 0) { item.flash = Math.max(0, item.flash - dt); item.group.scale.setScalar(1 + Math.sin(item.flash * 20) * 0.05); }
+    else item.group.scale.setScalar(1);
+  });
+  document.querySelector('#impact-toast').textContent = state.toastTime > 0 ? state.toast : '';
+  refreshStatus();
+}
+function resize() {
+  const width = wrap.clientWidth, height = wrap.clientHeight;
+  if (canvas.width !== Math.round(width * renderer.getPixelRatio()) || canvas.height !== Math.round(height * renderer.getPixelRatio())) {
+    renderer.setSize(width, height, false);
+    camera.aspect = width / height;
+    if (camera.aspect < 1) {
+      camera.fov = 70;
+      camera.position.set(0, 9.5, 22);
+      camera.lookAt(0, 1.5, -9);
+    } else {
+      camera.fov = 50;
+      camera.position.set(0, 9, 18);
+      camera.lookAt(0, 1.5, -7);
+    }
+    camera.updateProjectionMatrix();
+  }
+}
+function render() { resize(); renderer.render(scene, camera); }
+window.advanceTime = (ms) => { const count = Math.max(1, Math.round(ms / (1000 / 60))); for (let i = 0; i < count; i++) update(1 / 60); render(); };
+window.render_game_to_text = () => JSON.stringify({
+  coordinates: 'x right, y up, z toward camera; abstract scene units',
+  selected: targets[state.selected]?.name ?? null,
+  score: state.score, hits: state.hits, rounds: state.rounds, magazine: state.magazine,
+  mode: state.mode, caliber: state.caliber, barrel: state.barrel,
+  cooldown: Number(state.cycle.toFixed(2)), reload: Number(state.reload.toFixed(2)), heat: Number(state.temp.toFixed(1)), queued: state.queued,
+  shotsInFlight: state.shots.length,
+  shots: state.shots.map((s) => ({ x: Number(s.pos.x.toFixed(2)), y: Number(s.pos.y.toFixed(2)), z: Number(s.pos.z.toFixed(2)), speed: Number(Math.hypot(s.vel.x, s.vel.y, s.vel.z).toFixed(1)), mode: s.mode })),
+  derived: {
+    projectileKg: Number(state.build.projectileKg.toFixed(2)), muzzleMs: Math.round(state.build.muzzleMs),
+    cooldownS: Number(state.build.cooldownS.toFixed(2)), reloadS: Number(state.build.reloadS.toFixed(2)),
+    sustainedRof: Number(state.build.sustainedRof.toFixed(1)), recoilRatio: Number(state.build.recoilRatio.toFixed(2)),
+    elevStalled: state.build.elevStalled, temp: Number(state.temp.toFixed(1)),
+  },
+  debris: state.debris.map(({ body }) => { const p = body.translation(); return { x: Number(p.x.toFixed(2)), y: Number(p.y.toFixed(2)), z: Number(p.z.toFixed(2)) }; }),
+  targets: targets.map(({ name, hp, maxHp, alive, x, z }) => ({ name, hp, maxHp, alive, x, z })),
+});
+let last = performance.now();
+function frame(now) { const dt = Math.min((now - last) / 1000, 0.05); last = now; update(dt); render(); requestAnimationFrame(frame); }
+rebuildStats();
+refreshUI();
+requestAnimationFrame(frame);
