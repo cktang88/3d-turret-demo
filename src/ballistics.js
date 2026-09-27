@@ -40,7 +40,10 @@ export function recoilImpulse(caliberMM, barrelM, mode) {
 }
 export function recoilSystemMass(caliberMM, barrelM) { return 0.9 * barrelMass(caliberMM, barrelM) }
 export function recoilCapacity(caliberMM, barrelM) { return PHYS.REC_CAP_PER_KG * recoilSystemMass(caliberMM, barrelM) }
-export function recoilRatio(caliberMM, barrelM, mode) { return recoilCapacity(caliberMM, barrelM) / recoilImpulse(caliberMM, barrelM, mode) }
+export function recoilRatio(caliberMM, barrelM, mode) {
+  const impulse = recoilImpulse(caliberMM, barrelM, mode)
+  return impulse > 0 ? recoilCapacity(caliberMM, barrelM) / impulse : Infinity
+}
 export function recoilRecovery(caliberMM, barrelM, mode) { return PHYS.REC_BASE * clamp(1 / recoilRatio(caliberMM, barrelM, mode), 0.7, 6) }
 export function handlingTime(caliberMM, mode) {
   const ref = roundMass(PHYS.REF_ROUND_CALIBER, 'focused')
@@ -76,7 +79,10 @@ export function machCd(mach) {
   return CD_TABLE[CD_TABLE.length - 1][1]
 }
 export function frontalArea(caliberMM) { return Math.PI / 4 * (caliberMM / 1000) ** 2 }
-export function ballisticEfficiency(caliberMM) { return projectileMass(caliberMM) / (machCd(2) * frontalArea(caliberMM)) }
+export function ballisticEfficiency(caliberMM) {
+  const area = frontalArea(caliberMM)
+  return area > 0 ? projectileMass(caliberMM) / (machCd(2) * area) : Infinity
+}
 export function dragDeceleration(speed, caliberMM, massKg) {
   return 0.5 * PHYS.RHO_SCENE * machCd(speed / PHYS.SOUND_SCENE) * frontalArea(caliberMM) * speed * speed / massKg
 }
@@ -113,13 +119,14 @@ function missFor(origin, target, caliberMM, barrelM, mode, yaw, pitch) {
     stepFlight(p, 1 / 60)
     t += 1 / 60
     const along = (p.pos.x - origin.x) * ux + (p.pos.z - origin.z) * uz
-    if (along >= horiz || p.pos.y <= 0) {
+    if (along >= horiz) {
       return {
         miss: p.pos.y - target.y,
         lat: (p.pos.x - target.x) * -uz + (p.pos.z - target.z) * ux,
         time: t,
       }
     }
+    if (p.pos.y <= 0) return { miss: -2, lat: (p.pos.x - target.x) * -uz + (p.pos.z - target.z) * ux, time: t }
   }
   return { miss: -10, lat: 0, time: t }
 }
@@ -156,19 +163,30 @@ export function solveAim(origin, target, caliberMM, barrelM, mode) {
     yaw += Math.asin(clamp(sol.lat / horiz, -0.6, 0.6))
   }
   const sol = solvePitch(origin, target, caliberMM, barrelM, mode, yaw)
-  return sol ? { dir: dirFor(yaw, sol.pitch), yaw, pitch: sol.pitch, flightTime: sol.time } : null
+  return sol && Math.abs(sol.lat) < 0.25 ? { dir: dirFor(yaw, sol.pitch), yaw, pitch: sol.pitch, flightTime: sol.time } : null
 }
 export function effectiveRange(caliberMM, barrelM, mode) {
   const m = modeOf(mode)
-  const v0 = muzzleVelocity(barrelM) * m.velFrac * PHYS.V_SCALE
+  const speed = muzzleVelocity(barrelM) * m.velFrac * PHYS.V_SCALE
   const mass = projectileMass(caliberMM) * m.massFrac
   const area = frontalArea(caliberMM)
-  let v = v0, x = 0
-  while (x < 200 && v > 0.7 * v0 && v > 0) {
-    v -= 0.5 * PHYS.RHO_SCENE * machCd(v / PHYS.SOUND_SCENE) * area * v * v / mass * 0.01
-    x += v * 0.01
+  let best = 0
+  for (let i = 0; i <= 12; i++) {
+    const pitch = 1.2 * i / 12
+    const d = dirFor(0, pitch)
+    const p = { pos: { x: 0, y: 1.7, z: 0 }, vel: { x: d.x * speed, y: d.y * speed, z: d.z * speed }, mass, area }
+    let prevY = p.pos.y
+    for (let t = 0; t < 8; t += 1 / 60) {
+      stepFlight(p, 1 / 60)
+      if (prevY > 2 && p.pos.y <= 2 && p.vel.y < 0) {
+        best = Math.max(best, -p.pos.z)
+        break
+      }
+      prevY = p.pos.y
+      if (p.pos.y <= 0) break
+    }
   }
-  return Math.min(x, 200)
+  return Math.min(best, 200)
 }
 export function impactResult(vImpactScene, vMuzzleScene, vMuzzleReal, caliberMM, mode, armor) {
   const m = modeOf(mode)
@@ -198,7 +216,7 @@ export function inertiaBreakdown(caliberMM, barrelM, roundsRemaining) {
     { name: 'recoil system', mass: recoilSystemMass(caliberMM, barrelM), yawR: 0.35, elevX: -0.35 },
     { name: 'loader', mass: 400, yawR: 0.9 },
     { name: 'magazine', mass: 300 + ammo, yawR: 1.4 },
-    { name: 'counterweight', mass: PHYS.BALANCE_FRACTION * 0.45 * mb * barrelM, yawR: 1.2, elevX: -1.2 },
+    { name: 'counterweight', mass: (PHYS.BALANCE_FRACTION * 0.45 * mb * barrelM) / 1.2, yawR: 1.2, elevX: -1.2 },
     { name: 'armor', mass: 3768, yawR: 1.35 },
     { name: 'turret shell', mass: 2500, yawR: 0.9 },
   ]
@@ -217,14 +235,16 @@ export function driveYaw(I) {
   return {
     inertia: I, tauMax: PHYS.TAU_YAW, pMax: PHYS.P_YAW, drag: PHYS.DRAG_TORQUE,
     alpha0: (PHYS.TAU_YAW - PHYS.DRAG_TORQUE) / I,
-    omegaMax: Math.min(PHYS.OMEGA_YAW_MAX, PHYS.P_YAW / PHYS.TAU_YAW),
+    omegaMax: PHYS.OMEGA_YAW_MAX,
   }
 }
 export function driveElev(I, gravityTorque) {
   const net = PHYS.TAU_ELEV - gravityTorque - PHYS.DRAG_TORQUE_E
   return {
     inertia: I, tauMax: PHYS.TAU_ELEV, pMax: PHYS.P_ELEV, drag: PHYS.DRAG_TORQUE_E, gravityTorque,
-    alpha0: net / I, omegaMax: PHYS.OMEGA_ELEV_MAX, stalled: net <= 0,
+    alpha0: net / I,
+    omegaMax: Math.min(PHYS.OMEGA_ELEV_MAX, PHYS.P_ELEV / Math.max(gravityTorque + PHYS.DRAG_TORQUE_E, 1)),
+    stalled: net <= 0,
   }
 }
 export function gauss() {

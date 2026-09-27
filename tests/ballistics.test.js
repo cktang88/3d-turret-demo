@@ -43,11 +43,15 @@ test('angular acceleration is torque over inertia', () => {
   assert.ok(Math.abs(a1 / a2 - 2) < 0.001)
 })
 
-test('motor power caps available torque and top speed', () => {
+test('motor power caps available torque and gearing limits top speed', () => {
   const d = B.driveYaw(10000)
-  assert.ok(Math.abs(d.omegaMax - PHYS.P_YAW / PHYS.TAU_YAW) < 0.001)
-  assert.ok(PHYS.P_YAW / PHYS.TAU_YAW < PHYS.OMEGA_YAW_MAX)
-  assert.ok(Math.min(PHYS.TAU_YAW, PHYS.P_YAW / 1) === PHYS.TAU_YAW)
+  assert.ok(d.omegaMax === PHYS.OMEGA_YAW_MAX)
+  const corner = PHYS.P_YAW / PHYS.TAU_YAW
+  assert.ok(Math.min(PHYS.TAU_YAW, PHYS.P_YAW / (corner * 1.2)) < PHYS.TAU_YAW, 'power limits torque above corner speed')
+  const e = B.driveElev(1000, 15000)
+  assert.ok(e.omegaMax <= PHYS.OMEGA_ELEV_MAX)
+  assert.ok(!e.stalled)
+  assert.ok(B.driveElev(1000, 20000).stalled)
 })
 
 test('shot cooldown is the max of bottlenecks', () => {
@@ -177,7 +181,20 @@ test('reference build tuning targets', () => {
   const inv = B.inertiaBreakdown(60, 4, 8)
   const yd = B.driveYaw(inv.yaw)
   assert.ok(yd.alpha0 > 2 && yd.alpha0 < 4, `alpha ${yd.alpha0}`)
-  assert.ok(yd.omegaMax > 1.7 && yd.omegaMax < 1.9, `omega ${yd.omegaMax}`)
+  assert.ok(yd.omegaMax > 1.7 && yd.omegaMax <= 1.9, `omega ${yd.omegaMax}`)
+})
+
+test('effective range matches the fire-control envelope', () => {
+  const range = B.effectiveRange(60, 4, 'focused')
+  const inside = B.solveAim({ x: 0, y: 1.7, z: 0 }, { x: 0, y: 2, z: -(range - 2) }, 60, 4, 'focused')
+  const outside = B.solveAim({ x: 0, y: 1.7, z: 0 }, { x: 0, y: 2, z: -(range + 10) }, 60, 4, 'focused')
+  assert.ok(inside, `no solution inside envelope ${range.toFixed(1)}`)
+  assert.equal(outside, null, `solution beyond envelope ${range.toFixed(1)}`)
+})
+
+test('no NaN for degenerate zero inputs', () => {
+  assert.ok(!Number.isNaN(B.recoilRatio(60, 0, 'focused')))
+  assert.ok(!Number.isNaN(B.ballisticEfficiency(0)))
 })
 
 test('deriveBuild exposes coherent stats', () => {
