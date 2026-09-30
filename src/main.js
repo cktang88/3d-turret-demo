@@ -77,13 +77,13 @@ function cylinder(parent, top, bottom, height, position, material, sides = 24) {
 const turretBase = new THREE.Group();
 turretBase.position.set(0, 0, 5.5);
 scene.add(turretBase);
-cylinder(turretBase, 2.35, 2.55, 0.45, [0, 0.26, 0], dark, 12);
-cylinder(turretBase, 2.1, 2.12, 0.16, [0, 0.58, 0], edge, 24);
+cylinder(turretBase, 2.35, 2.55, 0.45, [0, 0.26, 0], dark, 36);
+cylinder(turretBase, 2.1, 2.12, 0.16, [0, 0.58, 0], edge, 48);
 const azimuth = new THREE.Group();
 azimuth.position.y = 0.65;
 turretBase.add(azimuth);
-cylinder(azimuth, 1.85, 2.05, 0.32, [0, 0.12, 0], dark, 12);
-const housing = cylinder(azimuth, 1.42, 1.66, 1.15, [0, 0.84, 0.25], steel, 8);
+cylinder(azimuth, 1.85, 2.05, 0.32, [0, 0.12, 0], dark, 36);
+const housing = cylinder(azimuth, 1.42, 1.66, 1.15, [0, 0.84, 0.25], steel, 24);
 housing.rotation.y = Math.PI / 8;
 box(azimuth, [2.65, 0.3, 1.95], [0, 1.41, 0.28], dark);
 box(azimuth, [1.8, 0.14, 0.9], [0, 1.58, 0.4], edge);
@@ -109,16 +109,16 @@ function rebuildBarrel() {
   const length = state.barrel;
   const radius = 0.16 + Math.sqrt(state.caliber / 600) * 0.17;
   const rootRadius = radius * 1.55;
-  const tube = cylinder(barrelBody, radius * 1.16, radius, length, [0, 0, -0.6 - length / 2], steel, 24);
+  const tube = cylinder(barrelBody, radius * 1.16, radius, length, [0, 0, -0.6 - length / 2], steel, 40);
   tube.rotation.x = Math.PI / 2;
   const sleeveLength = Math.min(1.6, length * 0.45);
-  const sleeve = cylinder(barrelBody, rootRadius, radius * 1.12, sleeveLength, [0, 0, -0.6 - sleeveLength / 2], steel, 24);
+  const sleeve = cylinder(barrelBody, rootRadius, radius * 1.12, sleeveLength, [0, 0, -0.6 - sleeveLength / 2], steel, 40);
   sleeve.rotation.x = Math.PI / 2;
-  const collar = cylinder(barrelBody, rootRadius * 1.08, rootRadius * 1.08, 0.32, [0, 0, -0.7], dark);
+  const collar = cylinder(barrelBody, rootRadius * 1.08, rootRadius * 1.08, 0.32, [0, 0, -0.7], dark, 36);
   collar.rotation.x = Math.PI / 2;
-  const tip = cylinder(barrelBody, radius * 1.18, radius * 1.18, 0.35, [0, 0, -0.6 - length], edge);
+  const tip = cylinder(barrelBody, radius * 1.18, radius * 1.18, 0.35, [0, 0, -0.6 - length], edge, 36);
   tip.rotation.x = Math.PI / 2;
-  const bore = new THREE.Mesh(new THREE.CircleGeometry(radius * 0.7, 24), dark);
+  const bore = new THREE.Mesh(new THREE.CircleGeometry(radius * 0.7, 40), dark);
   bore.position.set(0, 0, -0.6 - length - 0.182);
   bore.rotation.y = Math.PI;
   barrelBody.add(bore);
@@ -145,11 +145,11 @@ function targetShape(spec, group) {
     const shape = cylinder(group, 1.25, 1.25, 0.45, [0, 1.8, 0], color, 6);
     shape.rotation.x = Math.PI / 2;
   } else if (spec.shape === 'ring') {
-    const ring = new THREE.Mesh(new THREE.TorusGeometry(1.12, 0.34, 10, 28), color);
+    const ring = new THREE.Mesh(new THREE.TorusGeometry(1.12, 0.34, 24, 64), color);
     ring.position.y = 1.9;
     ring.castShadow = true;
     group.add(ring);
-    const center = new THREE.Mesh(new THREE.SphereGeometry(0.38, 18, 12), orange);
+    const center = new THREE.Mesh(new THREE.SphereGeometry(0.38, 32, 24), orange);
     center.position.y = 1.9;
     group.add(center);
   } else if (spec.shape === 'block') {
@@ -162,16 +162,16 @@ function targetShape(spec, group) {
     wedge.castShadow = true;
     group.add(wedge);
   } else if (spec.shape === 'tower') {
-    cylinder(group, 0.82, 1.18, 3.2, [0, 2.25, 0], color, 8);
+    cylinder(group, 0.82, 1.18, 3.2, [0, 2.25, 0], color, 36);
     box(group, [2.2, 0.22, 1.2], [0, 3.9, 0], edge);
   } else {
-    const disc = cylinder(group, 1.4, 1.4, 0.36, [0, 1.9, 0], color, 24);
+    const disc = cylinder(group, 1.4, 1.4, 0.36, [0, 1.9, 0], color, 48);
     disc.rotation.x = Math.PI / 2;
-    cylinder(group, 0.44, 0.44, 0.4, [0, 1.9, 0.25], orange, 24).rotation.x = Math.PI / 2;
+    cylinder(group, 0.44, 0.44, 0.4, [0, 1.9, 0.25], orange, 48).rotation.x = Math.PI / 2;
   }
-  cylinder(group, 0.07, 0.07, 1.35, [0, 0.7, 0], dark, 10);
-  cylinder(group, 1.5, 1.5, 0.14, [0, 0.08, 0], dark, 18);
-  const halo = new THREE.Mesh(new THREE.RingGeometry(1.58, 1.68, 32), new THREE.MeshBasicMaterial({ color: '#2de5ca', side: THREE.DoubleSide }));
+  cylinder(group, 0.07, 0.07, 1.35, [0, 0.7, 0], dark, 20);
+  cylinder(group, 1.5, 1.5, 0.14, [0, 0.08, 0], dark, 40);
+  const halo = new THREE.Mesh(new THREE.RingGeometry(1.58, 1.68, 64), new THREE.MeshBasicMaterial({ color: '#2de5ca', side: THREE.DoubleSide }));
   halo.rotation.x = -Math.PI / 2;
   halo.position.y = 0.16;
   group.add(halo);
@@ -193,7 +193,7 @@ const state = {
   yaw: 0, pitch: 0, yawVel: 0, pitchVel: 0, recoil: 0, recoilScale: 1,
   shots: [], effects: [], debris: [], toast: '', toastTime: 0,
   build: null, driveYaw: null, driveElev: null, aim: null, aimKey: '', aimAge: 0, warned: '',
-  report: null, trailPts: [], trailLine: null,
+  report: null, trailPts: [], vacPts: [], vacLine: null, trailLine: null,
 };
 rebuildBarrel();
 const raycaster = new THREE.Raycaster();
@@ -204,13 +204,13 @@ const aimPos = new THREE.Vector3(0, 9, 18);
 const aimLook = new THREE.Vector3(0, 1.5, -7);
 rig.setAimView(aimPos, aimLook);
 function targetCenter(target) { return new THREE.Vector3(target.x, (target.shape === 'tower' ? 2.6 : 1.9) * 20, target.z); }
-function selectTarget(id) {
+function selectTarget(id, keepView = false) {
   if (!targets[id]?.alive) return;
   state.selected = id;
   state.queued = false;
   state.warned = '';
   state.aimKey = '';
-  rig.setMode('aim');
+  if (!keepView) rig.setMode('aim');
   refreshUI();
 }
 function nextTarget() {
@@ -281,7 +281,9 @@ function refreshAim(dt) {
     pitch = s.pitch;
   }
   state.aim = sol;
-  if (!sol && state.queued) { announce('TARGET OUT OF RANGE'); state.queued = false; }
+  if (!sol && state.outKey !== key) { announce('TARGET OUT OF RANGE'); state.outKey = key; }
+  if (sol) state.outKey = '';
+  if (!sol && state.queued) state.queued = false;
 }
 function wrapPi(a) { return Math.atan2(Math.sin(a), Math.cos(a)); }
 function slewAxis(err, vel, drive, gravity, dt) {
@@ -302,19 +304,25 @@ const _upv = new THREE.Vector3();
 const SHELL_SCALE = 40;
 function makeShellMesh(caliberMM, mode) {
   const r = caliberMM / 2000 * SHELL_SCALE;
-  const bodyLen = r * 5.2;
   const group = new THREE.Group();
   const shellMat = new THREE.MeshStandardMaterial({ color: mode === 'burst' ? '#ffc486' : '#8dfdf1', emissive: mode === 'burst' ? '#7a4312' : '#0b6e60', emissiveIntensity: 0.7, metalness: 0.5, roughness: 0.4 });
-  const body = new THREE.Mesh(new THREE.CylinderGeometry(r, r * 0.92, bodyLen, 14), shellMat);
+  const pts = [];
+  pts.push(new THREE.Vector2(0.55 * r, 0));
+  pts.push(new THREE.Vector2(0.8 * r, 0.12 * r));
+  pts.push(new THREE.Vector2(0.96 * r, 0.4 * r));
+  pts.push(new THREE.Vector2(r, 0.9 * r));
+  pts.push(new THREE.Vector2(r, 2.9 * r));
+  for (let i = 1; i <= 10; i++) {
+    const t = i / 10;
+    pts.push(new THREE.Vector2(r * Math.cos(t * Math.PI / 2) ** 0.75, (2.9 + 2.4 * Math.sin(t * Math.PI / 2)) * r));
+  }
+  const body = new THREE.Mesh(new THREE.LatheGeometry(pts, 28), shellMat);
   body.rotation.x = -Math.PI / 2;
-  body.position.z = -bodyLen * 0.35;
-  const nose = new THREE.Mesh(new THREE.ConeGeometry(r * 0.98, r * 3.1, 14), shellMat);
-  nose.rotation.x = -Math.PI / 2;
-  nose.position.z = -(bodyLen * 0.85 + r * 1.55);
-  const band = new THREE.Mesh(new THREE.CylinderGeometry(r * 1.03, r * 1.03, bodyLen * 0.1, 14), new THREE.MeshStandardMaterial({ color: '#b8894a', metalness: 0.8, roughness: 0.4 }));
+  body.position.z = -2.9 * r;
+  const band = new THREE.Mesh(new THREE.CylinderGeometry(r * 1.035, r * 1.035, 0.42 * r, 28), new THREE.MeshStandardMaterial({ color: '#b8894a', metalness: 0.85, roughness: 0.35 }));
   band.rotation.x = -Math.PI / 2;
-  band.position.z = -bodyLen * 0.05;
-  group.add(body, nose, band);
+  band.position.z = -0.75 * r;
+  group.add(body, band);
   return group;
 }
 function fire() {
@@ -352,6 +360,15 @@ function fire() {
   state.queued = false;
   if (state.rounds === 0) announce('MAGAZINE EMPTY · PRESS R');
   clearTrail();
+  state.vacPts = [];
+  const vy0 = _dir.y, vx0 = _dir.x, vz0 = _dir.z;
+  const tVac = (vy0 + Math.sqrt(vy0 * vy0 + 2 * 9.81 * origin.y)) / 9.81;
+  const vSteps = 72;
+  for (let i = 0; i <= vSteps; i++) {
+    const t = tVac * i / vSteps;
+    state.vacPts.push(new THREE.Vector3(origin.x + vx0 * t, Math.max(0, origin.y + vy0 * t - 4.905 * t * t), origin.z + vz0 * t));
+  }
+  state.vacRangeM = Math.round(Math.hypot(origin.x + vx0 * tVac - origin.x, origin.z + vz0 * tVac - origin.z));
   state.report = null;
   rig.setMode('follow');
   rebuildStats();
@@ -393,6 +410,12 @@ function clearTrail() {
     state.trailLine.material.dispose();
     state.trailLine = null;
   }
+  if (state.vacLine) {
+    scene.remove(state.vacLine);
+    state.vacLine.geometry.dispose();
+    state.vacLine.material.dispose();
+    state.vacLine = null;
+  }
   state.trailPts = [];
 }
 const _hitPos = new THREE.Vector3();
@@ -414,6 +437,7 @@ function finishShot(shot, hitGround) {
     deviationM: Math.round(deviation),
     impactMs: Math.round(speed),
     energyMJ: (r.energyJ / 1e6).toFixed(2),
+    vacRangeM: state.vacRangeM,
     hit: target.alive && deviation < hitRadius,
     windMs: B.windSpeed().toFixed(1),
     windDeg: Math.round((B.windHeading() * 180 / Math.PI + 360) % 360),
@@ -432,14 +456,15 @@ function finishShot(shot, hitGround) {
   }
   state.report = report;
   rig.setMode('plot');
-  const pulse = new THREE.Mesh(new THREE.SphereGeometry(1, 20, 12), new THREE.MeshBasicMaterial({ color: shot.mode === 'burst' ? '#ffaf6f' : '#6fffe4', transparent: true, opacity: 0.6, wireframe: true }));
+  rig.setPlot(state.trailPts);
+  const pulse = new THREE.Mesh(new THREE.SphereGeometry(1, 36, 24), new THREE.MeshBasicMaterial({ color: shot.mode === 'burst' ? '#ffaf6f' : '#6fffe4', transparent: true, opacity: 0.6, wireframe: true }));
   pulse.position.set(shot.pos.x, Math.max(shot.pos.y, 2), shot.pos.z);
   scene.add(pulse);
   state.effects.push({ mesh: pulse, age: 0, mode: shot.mode, max: Math.max(30, radius) });
   refreshUI();
 }
 function groundPuff(shot) {
-  const pulse = new THREE.Mesh(new THREE.SphereGeometry(1, 12, 8), new THREE.MeshBasicMaterial({ color: '#9db4b8', transparent: true, opacity: 0.4, wireframe: true }));
+  const pulse = new THREE.Mesh(new THREE.SphereGeometry(1, 28, 18), new THREE.MeshBasicMaterial({ color: '#9db4b8', transparent: true, opacity: 0.4, wireframe: true }));
   pulse.position.set(shot.pos.x, 3, shot.pos.z);
   scene.add(pulse);
   state.effects.push({ mesh: pulse, age: 0, mode: 'ground', max: 40 });
@@ -464,7 +489,7 @@ function reset() {
   physicsTime = 0;
   state.selected = 0; state.rounds = state.magazine; state.score = 0; state.hits = 0;
   state.cycle = 0; state.reload = 0; state.temp = 0; state.queued = false;
-  state.yawVel = 0; state.pitchVel = 0; state.warned = ''; state.aimKey = '';
+  state.yawVel = 0; state.pitchVel = 0; state.warned = ''; state.aimKey = ''; state.outKey = '';
   state.report = null;
   clearTrail();
   rig.setMode('aim');
@@ -511,6 +536,7 @@ function refreshReport() {
     ['FLIGHT TIME', `${r.flightS} s`],
     ['AIMED RANGE', fmtRange(r.aimedM)],
     ['ACTUAL RANGE', fmtRange(r.rangeM)],
+    ['VACUUM RANGE', fmtRange(r.vacRangeM)],
     ['DEVIATION', `${r.deviationM} m`],
     ['IMPACT VELOCITY', `${r.impactMs} m/s`],
     ['IMPACT ENERGY', `${r.energyMJ} MJ`],
@@ -529,6 +555,60 @@ function refreshStatus() {
   document.querySelector('#heat-fill').style.width = `${state.temp}%`;
 }
 const fmtHp = (h) => (Number.isInteger(h) ? h : h.toFixed(1));
+const mapGroup = new THREE.Group();
+mapGroup.visible = false;
+scene.add(mapGroup);
+const mapMarkers = [];
+function labelSprite(text, color) {
+  const canvas = document.createElement('canvas');
+  canvas.width = 256; canvas.height = 64;
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = 'rgba(13, 25, 34, 0.85)';
+  ctx.fillRect(0, 0, 256, 64);
+  ctx.strokeStyle = color; ctx.lineWidth = 3;
+  ctx.strokeRect(1, 1, 254, 62);
+  ctx.fillStyle = color; ctx.font = '700 26px DM Sans, Arial';
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.fillText(text, 128, 33);
+  const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: new THREE.CanvasTexture(canvas), transparent: true }));
+  sprite.scale.set(1400, 350, 1);
+  return sprite;
+}
+specs.forEach((spec, id) => {
+  const marker = new THREE.Mesh(new THREE.RingGeometry(430, 560, 48), new THREE.MeshBasicMaterial({ color: spec.color, side: THREE.DoubleSide, transparent: true, opacity: 0.85 }));
+  marker.rotation.x = -Math.PI / 2;
+  marker.position.set(spec.x, 4, spec.z);
+  mapGroup.add(marker);
+  const hit = new THREE.Mesh(new THREE.CircleGeometry(620, 32), new THREE.MeshBasicMaterial({ transparent: true, opacity: 0 }));
+  hit.rotation.x = -Math.PI / 2;
+  hit.position.set(spec.x, 4.1, spec.z);
+  hit.userData.targetId = id;
+  mapGroup.add(hit);
+  mapMarkers.push(hit);
+  const label = labelSprite(`${spec.name} ${(spec.rangeM / 1000).toFixed(1)} km`, spec.color);
+  label.position.set(spec.x, 2600, spec.z);
+  mapGroup.add(label);
+});
+const turretMarker = new THREE.Mesh(new THREE.CircleGeometry(320, 32), new THREE.MeshBasicMaterial({ color: '#e6f2f0', side: THREE.DoubleSide }));
+turretMarker.rotation.x = -Math.PI / 2;
+turretMarker.position.set(0, 4, 5.5);
+mapGroup.add(turretMarker);
+const turretLabel = labelSprite('TURRET', '#e6f2f0');
+turretLabel.position.set(0, 2600, 5.5);
+mapGroup.add(turretLabel);
+function enterMap() {
+  const box = new THREE.Box3();
+  box.expandByPoint(new THREE.Vector3(0, 0, 5.5));
+  for (const t of targets) box.expandByPoint(new THREE.Vector3(t.x, 0, t.z));
+  const center = box.getCenter(new THREE.Vector3());
+  center.y = 0;
+  const extent = Math.max(box.min.distanceTo(box.max) / 2, 8000) + 3000;
+  rig.setMode('map', { center, extent });
+}
+function toggleMap() {
+  if (rig.mode === 'map') rig.setMode('aim');
+  else enterMap();
+}
 function refreshUI() {
   refreshStatus();
   targetList.innerHTML = targets.map((target) => `<button class="target-item ${target.id === state.selected ? 'selected' : ''} ${target.alive ? '' : 'cleared'}" data-id="${target.id}" ${target.alive ? '' : 'disabled'}><span class="target-swatch" style="--swatch:${target.color}"></span><span class="target-name">${target.name}<small>${target.tier} · ${(target.rangeM / 1000).toFixed(1)} km · ${fmtHp(target.hp)}/${target.maxHp} integrity</small></span><span class="target-arrow">${target.alive ? '↗' : '✓'}</span></button>`).join('');
@@ -537,14 +617,37 @@ targetList.addEventListener('click', (event) => {
   const button = event.target.closest('[data-id]');
   if (button) selectTarget(Number(button.dataset.id));
 });
+let orbitDrag = null;
+canvas.addEventListener('contextmenu', (event) => event.preventDefault());
 canvas.addEventListener('pointerdown', (event) => {
+  if (event.button === 2 || event.button === 1) {
+    orbitDrag = { x: event.clientX, y: event.clientY };
+    canvas.setPointerCapture(event.pointerId);
+    return;
+  }
+  if (event.button !== 0) return;
   const rect = canvas.getBoundingClientRect();
   pointer.set((event.clientX - rect.left) / rect.width * 2 - 1, -(event.clientY - rect.top) / rect.height * 2 + 1);
   raycaster.setFromCamera(pointer, camera);
+  if (rig.mode === 'map') {
+    const marker = raycaster.intersectObjects(mapMarkers, false).find((hit) => targets[hit.object.userData.targetId]?.alive);
+    if (marker) selectTarget(marker.object.userData.targetId, true);
+    return;
+  }
   const hitMesh = raycaster.intersectObjects(targetMeshes, false).find((hit) => targets[hit.object.userData.targetId]?.alive);
   if (hitMesh) selectTarget(hitMesh.object.userData.targetId);
   else requestFire();
 });
+window.addEventListener('pointermove', (event) => {
+  if (!orbitDrag) return;
+  rig.orbit((event.clientX - orbitDrag.x) * 0.006, (event.clientY - orbitDrag.y) * 0.006);
+  orbitDrag = { x: event.clientX, y: event.clientY };
+});
+window.addEventListener('pointerup', () => { orbitDrag = null; });
+canvas.addEventListener('wheel', (event) => {
+  event.preventDefault();
+  rig.zoomBy(Math.exp(event.deltaY * 0.0012));
+}, { passive: false });
 document.querySelector('#reset-btn').addEventListener('click', reset);
 document.querySelectorAll('.mode').forEach((button) => button.addEventListener('click', () => {
   state.mode = button.dataset.mode;
@@ -571,6 +674,7 @@ function toggleFullscreen() {
   else wrap.requestFullscreen?.();
 }
 document.querySelector('#fullscreen-btn').addEventListener('click', toggleFullscreen);
+document.querySelector('#map-btn').addEventListener('click', toggleMap);
 window.addEventListener('keydown', (event) => {
   if (['Space', 'Tab'].includes(event.code)) event.preventDefault();
   if (event.repeat) return;
@@ -578,6 +682,7 @@ window.addEventListener('keydown', (event) => {
   if (event.code === 'Tab') nextTarget();
   if (event.code === 'KeyR') reload();
   if (event.code === 'KeyF') toggleFullscreen();
+  if (event.code === 'KeyM') toggleMap();
   if (event.code === 'Escape' && document.fullscreenElement) document.exitFullscreen();
 });
 
@@ -660,6 +765,7 @@ function update(dt) {
       finishShot(shot, true);
     }
   }
+  mapGroup.visible = rig.mode === 'map';
   if (rig.mode === 'follow' && followShot) rig.update(dt, { pos: followShot.mesh.position, vel: _followVel.set(followShot.vel.x, followShot.vel.y, followShot.vel.z) });
   else if (rig.mode === 'plot') rig.update(dt, { points: state.trailPts });
   else rig.update(dt, null);
@@ -697,6 +803,11 @@ function updateTrailLine() {
   if (!state.trailLine) {
     state.trailLine = new THREE.Line(new THREE.BufferGeometry(), new THREE.LineBasicMaterial({ color: '#2de5ca' }));
     scene.add(state.trailLine);
+    if (state.vacPts.length > 1) {
+      state.vacLine = new THREE.Line(new THREE.BufferGeometry().setFromPoints(state.vacPts), new THREE.LineDashedMaterial({ color: '#5d7d86', dashSize: 150, gapSize: 90 }));
+      state.vacLine.computeLineDistances();
+      scene.add(state.vacLine);
+    }
   }
   state.trailLine.geometry.setFromPoints(state.trailPts);
 }
@@ -719,6 +830,11 @@ function resize() {
   }
 }
 function render() { resize(); renderer.render(scene, camera); }
+window.__project = (x, y, z) => {
+  const v = new THREE.Vector3(x, y, z).project(camera);
+  const rect = canvas.getBoundingClientRect();
+  return { x: rect.left + (v.x * 0.5 + 0.5) * rect.width, y: rect.top + (-v.y * 0.5 + 0.5) * rect.height };
+};
 window.advanceTime = (ms) => { const count = Math.max(1, Math.round(ms / (1000 / 60))); for (let i = 0; i < count; i++) update(1 / 60); render(); };
 window.render_game_to_text = () => JSON.stringify({
   coordinates: 'x right, y up, z toward camera; 1 unit = 1 meter, targets at km ranges',
