@@ -193,7 +193,7 @@ const state = {
   yaw: 0, pitch: 0, yawVel: 0, pitchVel: 0, recoil: 0, recoilScale: 1,
   shots: [], effects: [], debris: [], toast: '', toastTime: 0,
   build: null, driveYaw: null, driveElev: null, aim: null, aimKey: '', aimAge: 0, warned: '',
-  report: null, trailPts: [], vacPts: [], vacLine: null, trailLine: null,
+  report: null, trailPts: [], vacPts: [], vacLine: null, trailLine: null, paused: false,
 };
 rebuildBarrel();
 const raycaster = new THREE.Raycaster();
@@ -228,6 +228,7 @@ function rebuildStats() {
   state.build = B.deriveBuild(state.caliber, state.barrel, state.magazine, state.rounds);
   state.driveYaw = B.driveYaw(state.build.inertiaYaw);
   state.driveElev = B.driveElev(state.build.inertiaElev, B.gravityMoment(state.barrel, state.caliber, 0));
+  effRing.scale.setScalar(Math.max(1, state.build.effectiveRangeM));
   document.querySelector('#reload-preview').textContent = `Refill ${fmtRange(state.build.reloadS)}s · more rounds, longer refill · new slots fill on reload`;
   refreshDerived();
 }
@@ -544,7 +545,19 @@ function refreshReport() {
   ];
   el.innerHTML = `<div class="report-title">${r.hit ? 'TARGET HIT' : 'SHOT LANDED'}</div>` + rows.map(([k, v]) => `<div class="stat"><span>${k}</span><b>${v}</b></div>`).join('');
 }
+let windHudKey = '';
+function refreshWindHud() {
+  const speed = B.windSpeed();
+  const deg = Math.round((B.windHeading() * 180 / Math.PI + 360) % 360);
+  const key = `${speed.toFixed(1)}|${deg}`;
+  if (key === windHudKey) return;
+  windHudKey = key;
+  const screenDeg = Math.round((Math.atan2(B.PHYS.WIND.x, -B.PHYS.WIND.z) * 180 / Math.PI + 360) % 360);
+  document.querySelector('#wind-arrow').style.transform = `rotate(${screenDeg - 90}deg)`;
+  document.querySelector('#wind-speed').textContent = `${speed.toFixed(1)} m/s`;
+}
 function refreshStatus() {
+  refreshWindHud();
   document.querySelector('#score').textContent = state.score;
   document.querySelector('#hit-count').textContent = state.hits;
   document.querySelector('#targets-left').textContent = targets.filter((target) => target.alive).length;
@@ -589,6 +602,25 @@ specs.forEach((spec, id) => {
   label.position.set(spec.x, 2600, spec.z);
   mapGroup.add(label);
 });
+const ringGroup = new THREE.Group();
+mapGroup.add(ringGroup);
+for (let km = 5; km <= 30; km += 5) {
+  const pts = [];
+  for (let i = 0; i <= 96; i++) {
+    const a = i / 96 * Math.PI * 2;
+    pts.push(new THREE.Vector3(Math.cos(a) * km * 1000, 2, 5.5 + Math.sin(a) * km * 1000));
+  }
+  const ring = new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), new THREE.LineBasicMaterial({ color: '#4a6d76', transparent: true, opacity: 0.4 }));
+  ringGroup.add(ring);
+  const lab = labelSprite(`${km} km`, '#8ca9af');
+  lab.scale.set(700, 175, 1);
+  lab.position.set(km * 1000, 30, 5.5);
+  ringGroup.add(lab);
+}
+const effRing = new THREE.Mesh(new THREE.RingGeometry(0.994, 1.006, 160), new THREE.MeshBasicMaterial({ color: '#35e2c6', side: THREE.DoubleSide, transparent: true, opacity: 0.9 }));
+effRing.rotation.x = -Math.PI / 2;
+effRing.position.set(0, 6, 5.5);
+mapGroup.add(effRing);
 const turretMarker = new THREE.Mesh(new THREE.CircleGeometry(320, 32), new THREE.MeshBasicMaterial({ color: '#e6f2f0', side: THREE.DoubleSide }));
 turretMarker.rotation.x = -Math.PI / 2;
 turretMarker.position.set(0, 4, 5.5);
@@ -683,10 +715,30 @@ window.addEventListener('keydown', (event) => {
   if (event.code === 'KeyR') reload();
   if (event.code === 'KeyF') toggleFullscreen();
   if (event.code === 'KeyM') toggleMap();
+  if (event.code === 'KeyP') togglePause();
   if (event.code === 'Escape' && document.fullscreenElement) document.exitFullscreen();
 });
 
+function updateCamera(dt) {
+  const followShot = state.shots[0];
+  const _followVel = updateCamera._v ?? (updateCamera._v = new THREE.Vector3());
+  mapGroup.visible = rig.mode === 'map';
+  if (rig.mode === 'follow' && followShot) rig.update(dt, { pos: followShot.mesh.position, vel: _followVel.set(followShot.vel.x, followShot.vel.y, followShot.vel.z) });
+  else if (rig.mode === 'plot') rig.update(dt, { points: state.trailPts });
+  else rig.update(dt, null);
+}
+function togglePause() {
+  state.paused = !state.paused;
+  announce(state.paused ? 'SIMULATION PAUSED' : 'RESUMED');
+}
 function update(dt) {
+  if (state.paused) {
+    updateCamera(dt);
+    document.querySelector('#impact-toast').textContent = state.toastTime > 0 ? state.toast : '';
+    refreshReport();
+    refreshStatus();
+    return;
+  }
   state.cycle = Math.max(0, state.cycle - dt);
   state.temp = Math.max(0, state.temp - state.build.coolRate * dt);
   if (state.reload > 0) {
@@ -721,8 +773,6 @@ function update(dt) {
     const settled = Math.abs(state.yawVel) < 0.06 && Math.abs(state.pitchVel) < 0.06;
     if (state.queued && state.cycle === 0 && state.reload === 0 && settled && Math.abs(errYaw) < yawGate && Math.abs(errPitch) < pitchGate) fire();
   }
-  const followShot = state.shots[0];
-  const _followVel = update._followVel ?? (update._followVel = new THREE.Vector3());
   for (let i = state.shots.length - 1; i >= 0; i--) {
     const shot = state.shots[i];
     const simDt = dt * shot.timeScale;
@@ -765,10 +815,7 @@ function update(dt) {
       finishShot(shot, true);
     }
   }
-  mapGroup.visible = rig.mode === 'map';
-  if (rig.mode === 'follow' && followShot) rig.update(dt, { pos: followShot.mesh.position, vel: _followVel.set(followShot.vel.x, followShot.vel.y, followShot.vel.z) });
-  else if (rig.mode === 'plot') rig.update(dt, { points: state.trailPts });
-  else rig.update(dt, null);
+  updateCamera(dt);
   for (let i = state.effects.length - 1; i >= 0; i--) {
     const effect = state.effects[i];
     effect.age += dt;
@@ -839,6 +886,7 @@ window.advanceTime = (ms) => { const count = Math.max(1, Math.round(ms / (1000 /
 window.render_game_to_text = () => JSON.stringify({
   coordinates: 'x right, y up, z toward camera; 1 unit = 1 meter, targets at km ranges',
   view: rig.mode,
+  paused: state.paused,
   selected: targets[state.selected]?.name ?? null,
   score: state.score, hits: state.hits, rounds: state.rounds, magazine: state.magazine,
   mode: state.mode, caliber: state.caliber, barrel: state.barrel,

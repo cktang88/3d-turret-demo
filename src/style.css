@@ -17,3 +17,10 @@
 .shot-report .stat span{color:#6d8a94;font-size:8.5px;font-weight:700;letter-spacing:.1em;white-space:nowrap}
 .shot-report .stat b{color:#d9ecea;font-size:11px;font-weight:600;font-variant-numeric:tabular-nums;white-space:nowrap}
 .heat-row{margin-top:17px}.heat-row>div:first-child{display:flex;justify-content:space-between;color:#a4bfc2;font-size:10px;font-weight:700;letter-spacing:.13em}.heat-row small{font-size:8px;color:#77929a}.heat-row b{font-size:12px;color:#ffbd82}.heat-track{height:6px;margin-top:9px;background:#253c43;border-radius:6px;overflow:hidden}.heat-track>div{height:100%;width:0;background:linear-gradient(90deg,#ed9d51,#f07062)}
+
+#wind-hud{position:absolute;top:16px;left:18px;display:flex;align-items:center;gap:9px;z-index:4;background:#0d1b23c9;border:1px solid #43616b;border-radius:8px;padding:7px 11px 7px 8px}
+#wind-dial{width:34px;height:34px;border:1px solid #5d7d86;border-radius:50%;display:grid;place-items:center;position:relative}
+#wind-dial:before{content:'';position:absolute;width:3px;height:3px;background:#5d7d86;border-radius:50%}
+#wind-arrow{color:#35e2c6;font-size:15px;line-height:1;transition:transform .4s}
+#wind-text b{display:block;color:#d9ecea;font-size:11px;font-variant-numeric:tabular-nums}
+#wind-text small{color:#6d8a94;font-size:8px;font-weight:700;letter-spacing:.14em}
