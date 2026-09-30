@@ -48,9 +48,16 @@ test('muzzle velocity rises with diminishing returns', () => {
   assert.ok(v8 < PHYS.VMAX)
 })
 
-test('barrel mass scales with D squared times L', () => {
-  assert.ok(Math.abs(B.barrelMass(200, 5) / B.barrelMass(100, 5) - 4) < 0.001)
-  assert.ok(Math.abs(B.barrelMass(100, 10) / B.barrelMass(100, 5) - 2) < 0.001)
+test('barrel proportions: pressure wall plus stiffness floor', () => {
+  const p155 = B.barrelProfile(155, 6)
+  assert.ok(p155.r1 > 0.1 && p155.r1 < 0.15, `155mm breech radius ${(p155.r1 * 1000).toFixed(0)} mm (real ~120)`)
+  assert.ok(p155.r2 < p155.r1, 'barrel tapers toward muzzle')
+  const mass155 = B.barrelMass(155, 6)
+  assert.ok(mass155 > 500 && mass155 < 1100, `155/39 barrel ${mass155.toFixed(0)} kg`)
+  const r200 = B.barrelMass(200, 5) / B.barrelMass(100, 5)
+  assert.ok(r200 > 3.5 && r200 < 4.5, `caliber growth ratio ${r200.toFixed(2)}`)
+  assert.ok(B.barrelMass(100, 10) > B.barrelMass(100, 5) * 2, 'stiffness floor makes long barrels superlinear in length')
+  assert.ok(B.barrelMass(12.5, 8) > B.barrelMass(60, 4) * 10, 'a 12.5mm 8m barrel is a heavy tapered mast, not a thin tube')
 })
 
 test('recoil impulse is linear in mass and velocity, not energy', () => {
@@ -219,7 +226,7 @@ test('reference build tuning targets', () => {
   const heat = B.heatPerShot(60, 4, 'focused')
   assert.ok(heat > 30 && heat < 40, `heat ${heat}`)
   const cool = B.coolRate(60, 4)
-  assert.ok(cool > 10 && cool < 14, `cool ${cool}`)
+  assert.ok(cool > 5 && cool < 9, `cool ${cool}`)
   const inv = B.inertiaBreakdown(60, 4, 8)
   const yd = B.driveYaw(inv.yaw)
   assert.ok(yd.alpha0 > 2 && yd.alpha0 < 4, `alpha ${yd.alpha0}`)

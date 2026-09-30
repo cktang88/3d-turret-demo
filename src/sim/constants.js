@@ -3,7 +3,7 @@ export const PHYS = {
   L0: 5,
   VMAX: 1150, K_VEL: 1,
   M_BARREL: 300, SP: 1,
-  KR: 1.3, REC_CAP_PER_KG: 80, REC_BASE: 0.5, REC_OVERLOAD: 0.45,
+  KR: 1.3, REC_CAP_PER_KG: 110, REC_BASE: 0.5, REC_OVERLOAD: 0.45,
   TAU_YAW: 30000, P_YAW: 55000, OMEGA_YAW_MAX: 1.9, DRAG_TORQUE: 900,
   TAU_ELEV: 18000, P_ELEV: 22000, OMEGA_ELEV_MAX: 1.25, DRAG_TORQUE_E: 120,
   BALANCE_FRACTION: 0.72,
@@ -11,8 +11,9 @@ export const PHYS = {
   LOADER_FIXED: 0.06, HANDLE_BASE: 0.5, A_MASS: 0.85, B_LOADER: 0.55, CASE_FACTOR: 1.4,
   MECH_BASE: 0.22, MECH_EXP: 0.25,
   REFILL_BASE: 0.9, REFILL_PER: 0.12, REFILL_EXP: 0.6,
-  KH: 0.25, CP_STEEL: 460, COOL_W: 60000, HEAT_LOCK: 80,
+  KH: 0.25, CP_STEEL: 460, COOL_W: 30000, HEAT_LOCK: 80,
   G: 9.81, RHO: 1.225, SOUND: 340, RHO_SCALE_HEIGHT: 8500, CD_FORM: 1,
+  STEEL_RHO: 7850, STEEL_E: 2.1e11, SIGMA_ALLOW: 620, SAG_TOLERANCE: 250,
   WIND: { x: 0, y: 0, z: 0 },
   SIGMA_V: 0.002, SIGMA_ANG: 0.0018,
   PEN_K: 0.012, DMG_K: 8.5, SPLASH_K: 21, SPLASH_BASE: 25,
@@ -27,6 +28,7 @@ export const PHYS = {
 
 export function clamp(v, lo, hi) { return Math.min(hi, Math.max(lo, v)) }
 export function modeOf(mode) { return PHYS.MODE[mode] ?? PHYS.MODE.focused }
+export function muzzleVelocity(barrelM) { return PHYS.VMAX * (1 - Math.exp(-PHYS.K_VEL * barrelM / PHYS.L0)) }
 export function projectileMass(caliberMM) {
   const a = PHYS.MASS_ANCHOR
   return a.kg * (caliberMM / a.caliber) ** a.exp

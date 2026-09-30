@@ -1,6 +1,16 @@
-import { PHYS, roundMass } from './constants.js'
+import { PHYS, roundMass, muzzleVelocity } from './constants.js'
 
-export function barrelMass(caliberMM, barrelM) { return PHYS.M_BARREL * (caliberMM / 100) ** 2 * (barrelM / PHYS.L0) * PHYS.SP }
+export function barrelProfile(caliberMM, barrelM) {
+  const rBore = caliberMM / 2000
+  const pMPa = 240 + 120 * (muzzleVelocity(barrelM) / 900) ** 2
+  const rSag = Math.sqrt((PHYS.SAG_TOLERANCE * PHYS.STEEL_RHO * PHYS.G / (2 * PHYS.STEEL_E)) * barrelM ** 3)
+  const r1 = Math.max(rBore * (1 + pMPa / PHYS.SIGMA_ALLOW), rSag)
+  const r2 = Math.max(rBore * 1.15, rSag * 0.45)
+  const mass = PHYS.STEEL_RHO * Math.PI * barrelM * ((r1 * r1 + r1 * r2 + r2 * r2) / 3 - rBore * rBore)
+  const sag = PHYS.STEEL_RHO * PHYS.G * barrelM ** 4 / (2 * PHYS.STEEL_E * ((r1 * r1 + r2 * r2) / 2 + rBore * rBore))
+  return { rBore, r1, r2, mass, sag }
+}
+export function barrelMass(caliberMM, barrelM) { return Math.max(30, barrelProfile(caliberMM, barrelM).mass) }
 export function recoilSystemMass(caliberMM, barrelM) { return 0.9 * barrelMass(caliberMM, barrelM) }
 export function inertiaBreakdown(caliberMM, barrelM, roundsRemaining) {
   const mb = barrelMass(caliberMM, barrelM)

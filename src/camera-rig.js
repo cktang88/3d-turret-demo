@@ -78,9 +78,10 @@ export function createCameraRig(camera) {
     aimPos.copy(pos)
     aimLook.copy(lookAt)
   }
-  rig.setPlot = (points) => {
+  rig.setPlot = (points, vacPoints) => {
     const box = new THREE.Box3()
     for (const p of points) box.expandByPoint(p)
+    if (vacPoints) for (const p of vacPoints) box.expandByPoint(p)
     box.getCenter(plotCenter)
     plotCenter.y = (box.max.y + Math.max(0, box.min.y)) / 2
     const span = Math.max(500, Math.hypot(box.max.x - box.min.x, box.max.z - box.min.z))

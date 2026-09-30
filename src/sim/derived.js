@@ -2,6 +2,7 @@ import { PHYS, projectileMass, roundMass } from './constants.js'
 import { muzzleVelocity, muzzleEnergy, recoilImpulse, recoilRatio, shotCooldown, magazineRefill, heatPerShot, coolRate, thermalROF } from './interior.js'
 import { barrelMass, inertiaBreakdown, gravityMoment, driveYaw, driveElev } from './structure.js'
 import { ballisticEfficiency, effectiveRange } from './flight.js'
+import { barrelProfile } from './structure.js'
 
 export function deriveBuild(caliberMM, barrelM, magazine, roundsRemaining) {
   const inv = inertiaBreakdown(caliberMM, barrelM, roundsRemaining)
@@ -36,6 +37,8 @@ export function deriveBuild(caliberMM, barrelM, magazine, roundsRemaining) {
     burstHeatPerShot: heatPerShot(caliberMM, barrelM, 'burst'),
     coolRate: coolRate(caliberMM, barrelM),
     effectiveRangeM: effectiveRange(caliberMM, barrelM, 'focused'),
+    sagM: barrelProfile(caliberMM, barrelM).sag,
+    sagRad: barrelProfile(caliberMM, barrelM).sag / barrelM,
     ballisticEff: ballisticEfficiency(caliberMM),
     dispVel: PHYS.SIGMA_V,
     dispAng: PHYS.SIGMA_ANG,

@@ -1,7 +1,7 @@
-import { PHYS, clamp, modeOf, roundMass } from './constants.js'
+import { PHYS, clamp, modeOf, roundMass, muzzleVelocity } from './constants.js'
 import { barrelMass, recoilSystemMass } from './structure.js'
 
-export function muzzleVelocity(barrelM) { return PHYS.VMAX * (1 - Math.exp(-PHYS.K_VEL * barrelM / PHYS.L0)) }
+export { muzzleVelocity } from './constants.js'
 export function muzzleEnergy(caliberMM, barrelM, mode) {
   const m = modeOf(mode)
   return 0.5 * roundMass(caliberMM, mode) / PHYS.CASE_FACTOR * (muzzleVelocity(barrelM) * m.velFrac) ** 2

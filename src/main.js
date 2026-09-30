@@ -107,22 +107,21 @@ function rebuildBarrel() {
   barrelBody = new THREE.Group();
   barrel.add(barrelBody);
   const length = state.barrel;
-  const radius = 0.16 + Math.sqrt(state.caliber / 600) * 0.17;
-  const rootRadius = radius * 1.55;
-  const tube = cylinder(barrelBody, radius * 1.16, radius, length, [0, 0, -0.6 - length / 2], steel, 40);
+  const profile = B.barrelProfile(state.caliber, length);
+  const tube = cylinder(barrelBody, profile.r1, profile.r2, length, [0, 0, -0.6 - length / 2], steel, 32);
   tube.rotation.x = Math.PI / 2;
   const sleeveLength = Math.min(1.6, length * 0.45);
-  const sleeve = cylinder(barrelBody, rootRadius, radius * 1.12, sleeveLength, [0, 0, -0.6 - sleeveLength / 2], steel, 40);
+  const sleeve = cylinder(barrelBody, profile.r1 * 1.24, profile.r1 * 1.04, sleeveLength, [0, 0, -0.6 - sleeveLength / 2], steel, 32);
   sleeve.rotation.x = Math.PI / 2;
-  const collar = cylinder(barrelBody, rootRadius * 1.08, rootRadius * 1.08, 0.32, [0, 0, -0.7], dark, 36);
+  const collar = cylinder(barrelBody, profile.r1 * 1.3, profile.r1 * 1.3, 0.32, [0, 0, -0.7], dark, 36);
   collar.rotation.x = Math.PI / 2;
-  const tip = cylinder(barrelBody, radius * 1.18, radius * 1.18, 0.35, [0, 0, -0.6 - length], edge, 36);
+  const tip = cylinder(barrelBody, profile.r2 * 1.14, profile.r2 * 1.14, 0.3, [0, 0, -0.6 - length], edge, 36);
   tip.rotation.x = Math.PI / 2;
-  const bore = new THREE.Mesh(new THREE.CircleGeometry(radius * 0.7, 40), dark);
-  bore.position.set(0, 0, -0.6 - length - 0.182);
+  const bore = new THREE.Mesh(new THREE.CircleGeometry(profile.rBore * 0.85, 40), dark);
+  bore.position.set(0, 0, -0.6 - length - 0.16);
   bore.rotation.y = Math.PI;
   barrelBody.add(bore);
-  muzzleLocal.set(0, 0, -0.6 - length - 0.2);
+  muzzleLocal.set(0, 0, -0.6 - length - 0.18);
 }
 
 const specs = [
@@ -191,9 +190,10 @@ const state = {
   caliber: 60, barrel: 4, magazine: 8, rounds: 8, mode: 'focused',
   selected: 0, score: 0, hits: 0, cycle: 0, reload: 0, temp: 0, queued: false,
   yaw: 0, pitch: 0, yawVel: 0, pitchVel: 0, recoil: 0, recoilScale: 1,
-  shots: [], effects: [], debris: [], toast: '', toastTime: 0,
+  shots: [], effects: [], debris: [], cases: [], toast: '', toastTime: 0,
+  manual: false, manualYaw: 0, manualPitch: 0,
   build: null, driveYaw: null, driveElev: null, aim: null, aimKey: '', aimAge: 0, warned: '',
-  report: null, trailPts: [], vacPts: [], vacLine: null, trailLine: null, paused: false,
+  report: null, trailPts: [], vacPts: [], vacLine: null, trailLine: null, paused: false, plotHold: 0, followDelay: 0, returnDelay: 0, followDelay: 0,
 };
 rebuildBarrel();
 const raycaster = new THREE.Raycaster();
@@ -210,6 +210,7 @@ function selectTarget(id, keepView = false) {
   state.queued = false;
   state.warned = '';
   state.aimKey = '';
+  if (state.manual) { state.manual = false; announce('AUTO LAYING'); }
   if (!keepView) rig.setMode('aim');
   refreshUI();
 }
@@ -240,7 +241,7 @@ function reload() {
   refreshUI();
 }
 function requestFire() {
-  if (!targets[state.selected]?.alive) { announce('SELECT A TARGET'); return; }
+  if (!state.manual && !targets[state.selected]?.alive) { announce('SELECT A TARGET'); return; }
   if (state.reload > 0) return;
   if (state.rounds <= 0) { reload(); return; }
   if (state.temp >= B.PHYS.HEAT_LOCK) { announce('COOLING · WAIT'); return; }
@@ -269,7 +270,7 @@ function refreshAim(dt) {
   if (state.aimAge > 0) return;
   state.aimKey = key;
   state.aimAge = 0.15;
-  const tc = targetCenter(target);
+  const tc = target?.alive ? targetCenter(target) : new THREE.Vector3(origin.x + _dir.x * 1000, 0, origin.z + _dir.z * 1000);
   let yaw = Math.atan2(-(tc.x - axisPoint.x), -(tc.z - axisPoint.z));
   let pitch = Math.atan2(tc.y - axisPoint.y, Math.hypot(tc.x - axisPoint.x, tc.z - axisPoint.z));
   let sol = null;
@@ -322,7 +323,7 @@ function makeShellMesh(caliberMM, mode) {
   body.position.z = -2.9 * r;
   const band = new THREE.Mesh(new THREE.CylinderGeometry(r * 1.035, r * 1.035, 0.42 * r, 28), new THREE.MeshStandardMaterial({ color: '#b8894a', metalness: 0.85, roughness: 0.35 }));
   band.rotation.x = -Math.PI / 2;
-  band.position.z = -0.75 * r;
+  band.position.z = -4.1 * r;
   group.add(body, band);
   return group;
 }
@@ -333,9 +334,11 @@ function fire() {
   pivot.updateWorldMatrix(true, true);
   const origin = pivot.localToWorld(muzzleLocal.clone());
   const v0Real = B.muzzleVelocity(state.barrel) * m.velFrac;
-  const launchPitch = state.build.elevStalled ? state.pitch : state.aim.pitch;
-  _dir.copy(B.launchDir(state.aim.yaw, launchPitch));
-  const angSigma = B.PHYS.SIGMA_ANG * (1 + (state.build.recoilRatio < B.PHYS.REC_OVERLOAD ? 2 : 0) + 2.5 * (Math.abs(state.yawVel) + Math.abs(state.pitchVel)));
+  const launchPitch = (state.manual ? state.pitch : state.build.elevStalled ? state.pitch : state.aim.pitch) + state.build.sagRad;
+  const launchYaw = state.manual ? state.yaw : state.aim.yaw;
+  _dir.copy(B.launchDir(launchYaw, launchPitch));
+  const boreDir = _dir.clone();
+  const angSigma = Math.sqrt(B.PHYS.SIGMA_ANG ** 2 + state.build.sagRad ** 2) * (1 + (state.build.recoilRatio < B.PHYS.REC_OVERLOAD ? 2 : 0) + 2.5 * (Math.abs(state.yawVel) + Math.abs(state.pitchVel)));
   _right.copy(_dir).cross(_upAxis).normalize();
   _upv.copy(_right).cross(_dir).normalize();
   _dir.addScaledVector(_right, B.gauss() * angSigma).addScaledVector(_upv, B.gauss() * angSigma).normalize();
@@ -344,14 +347,15 @@ function fire() {
   const mesh = makeShellMesh(state.caliber, mode);
   mesh.position.copy(origin);
   scene.add(mesh);
-  const tc = targetCenter(target);
+  const tc = target?.alive ? targetCenter(target) : new THREE.Vector3(origin.x + _dir.x * 1000, 0, origin.z + _dir.z * 1000);
   state.shots.push({
     mesh, pos: { x: origin.x, y: origin.y, z: origin.z }, vel: { x: _dir.x, y: _dir.y, z: _dir.z },
     mass: B.projectileMass(state.caliber) * m.massFrac, area: B.frontalArea(state.caliber),
     v0Launch: speed, v0Real, targetId: target.id, mode, age: 0, apexY: origin.y,
-    timeScale: THREE.MathUtils.clamp((state.aim?.flightTime ?? 30) / 7, 3, 30),
+    timeScale: THREE.MathUtils.clamp((state.manual ? tc.distanceTo(origin) / (v0Real * 0.55) : state.aim?.flightTime ?? 30) / 7, 3, 30),
     startX: origin.x, startZ: origin.z, aimedM: Math.hypot(tc.x - origin.x, tc.z - origin.z), remain: 0, trailAcc: 0,
   });
+  ejectCase(origin, boreDir, state.caliber);
   state.rounds--;
   state.cycle = mode === 'focused' ? state.build.cooldownS : state.build.burstCooldownS;
   state.temp = Math.min(100, state.temp + (mode === 'focused' ? state.build.heatPerShot : state.build.burstHeatPerShot));
@@ -360,7 +364,7 @@ function fire() {
   if (state.build.recoilRatio < B.PHYS.REC_OVERLOAD && state.warned !== 'overload') { announce('RECOIL OVERLOAD'); state.warned = 'overload'; }
   state.queued = false;
   if (state.rounds === 0) announce('MAGAZINE EMPTY · PRESS R');
-  clearTrail();
+  state.followDelay = 0.55;
   state.vacPts = [];
   const vy0 = _dir.y, vx0 = _dir.x, vz0 = _dir.z;
   const tVac = (vy0 + Math.sqrt(vy0 * vy0 + 2 * 9.81 * origin.y)) / 9.81;
@@ -371,9 +375,41 @@ function fire() {
   }
   state.vacRangeM = Math.round(Math.hypot(origin.x + vx0 * tVac - origin.x, origin.z + vz0 * tVac - origin.z));
   state.report = null;
-  rig.setMode('follow');
   rebuildStats();
   refreshUI();
+}
+function ejectCase(origin, barrelDir, caliberMM) {
+  const r = caliberMM / 2000;
+  const mesh = new THREE.Mesh(new THREE.CylinderGeometry(r * 1.04, r * 0.97, r * 3.4, 16), new THREE.MeshStandardMaterial({ color: '#b8894a', metalness: 0.85, roughness: 0.35 }));
+  mesh.position.copy(origin).addScaledVector(barrelDir, -0.5);
+  mesh.castShadow = true;
+  scene.add(mesh);
+  const vel = barrelDir.clone().multiplyScalar(-(2.5 + Math.random() * 2));
+  vel.y += 2.2 + Math.random() * 1.5;
+  vel.x += (Math.random() - 0.5) * 1.2;
+  vel.z += (Math.random() - 0.5) * 1.2;
+  state.cases.push({ mesh, vel, spin: new THREE.Vector3(Math.random() * 6 - 3, Math.random() * 6 - 3, Math.random() * 6 - 3), age: 0 });
+}
+function updateCases(dt) {
+  for (let i = state.cases.length - 1; i >= 0; i--) {
+    const c = state.cases[i];
+    c.age += dt;
+    c.vel.y -= 9.81 * dt;
+    c.mesh.position.addScaledVector(c.vel, dt);
+    c.mesh.rotation.x += c.spin.x * dt;
+    c.mesh.rotation.z += c.spin.z * dt;
+    if (c.mesh.position.y <= 0.05) {
+      c.mesh.position.y = 0.05;
+      c.vel.set(c.vel.x * 0.55, 0, c.vel.z * 0.55);
+      c.spin.multiplyScalar(0.4);
+    }
+    if (c.age > 4) {
+      scene.remove(c.mesh);
+      c.mesh.geometry.dispose();
+      c.mesh.material.dispose();
+      state.cases.splice(i, 1);
+    }
+  }
 }
 function scatterTarget(target) {
   const center = targetCenter(target);
@@ -426,7 +462,7 @@ function finishShot(shot, hitGround) {
   const armor = B.PHYS.ARMOR[target.tier];
   const r = B.impactResult(speed, shot.v0Launch, state.caliber, shot.mode, armor);
   const hitRadius = B.splashRadius(state.caliber) * 1.5 + 25;
-  const tc = targetCenter(target);
+  const tc = target?.alive ? targetCenter(target) : new THREE.Vector3(origin.x + _dir.x * 1000, 0, origin.z + _dir.z * 1000);
   const deviation = Math.hypot(shot.pos.x - tc.x, shot.pos.z - tc.z);
   const report = {
     muzzleMs: Math.round(shot.v0Real),
@@ -456,8 +492,10 @@ function finishShot(shot, hitGround) {
     }
   }
   state.report = report;
+  state.plotHold = 2.6;
   rig.setMode('plot');
-  rig.setPlot(state.trailPts);
+  rig.setPlot(state.trailPts, state.vacPts);
+  state.returnDelay = 2.6;
   const pulse = new THREE.Mesh(new THREE.SphereGeometry(1, 36, 24), new THREE.MeshBasicMaterial({ color: shot.mode === 'burst' ? '#ffaf6f' : '#6fffe4', transparent: true, opacity: 0.6, wireframe: true }));
   pulse.position.set(shot.pos.x, Math.max(shot.pos.y, 2), shot.pos.z);
   scene.add(pulse);
@@ -487,12 +525,14 @@ function reset() {
     mesh.material.dispose();
   });
   state.shots = []; state.effects = []; state.debris = [];
+  state.cases.forEach(({ mesh }) => { scene.remove(mesh); mesh.geometry.dispose(); mesh.material.dispose(); });
+  state.cases = [];
   physicsTime = 0;
   state.selected = 0; state.rounds = state.magazine; state.score = 0; state.hits = 0;
   state.cycle = 0; state.reload = 0; state.temp = 0; state.queued = false;
   state.yawVel = 0; state.pitchVel = 0; state.warned = ''; state.aimKey = ''; state.outKey = '';
   state.report = null;
-  clearTrail();
+  state.followDelay = 0.55;
   rig.setMode('aim');
   rollWind();
   announce('RANGE RESET · NEW WIND');
@@ -521,6 +561,7 @@ function refreshDerived() {
     ['SHOT CYCLE', `${b.cooldownS.toFixed(2)} s`],
     ['SUSTAINED ROF', `${b.sustainedRof < 10 ? b.sustainedRof.toFixed(1) : Math.round(b.sustainedRof)} rpm`],
     ['EFFECTIVE RANGE', fmtRange(b.effectiveRangeM)],
+    ['BARREL SAG', `${(b.sagM * 1000).toFixed(0)} mm`],
     ['WIND', `${B.windSpeed().toFixed(1)} m/s @ ${windDeg}°`],
   ];
   document.querySelector('#derived-stats').innerHTML = rows.map(([k, v]) => `<div class="stat"><span>${k}</span><b>${v}</b></div>`).join('');
@@ -528,7 +569,7 @@ function refreshDerived() {
 function refreshReport() {
   const el = document.querySelector('#shot-report');
   const r = state.report;
-  if (!r || rig.mode !== 'plot') { el.style.display = 'none'; return; }
+  if (!r) { el.style.display = 'none'; return; }
   el.style.display = 'grid';
   const rows = [
     ['MODE', r.mode.toUpperCase()],
@@ -748,11 +789,13 @@ function update(dt) {
   state.toastTime = Math.max(0, state.toastTime - dt);
   state.recoil = Math.max(0, state.recoil - dt * 4.8);
   barrel.position.z = Math.sin(state.recoil * Math.PI) * 0.35 * state.recoilScale;
-  refreshAim(dt);
+  if (!state.manual) refreshAim(dt);
   const target = targets[state.selected];
-  if (target?.alive && state.aim) {
-    const errYaw = wrapPi(state.aim.yaw - state.yaw);
-    const errPitch = state.aim.pitch - state.pitch;
+  const desiredYaw = state.manual ? state.manualYaw : state.aim?.yaw;
+  const desiredPitch = state.manual ? state.manualPitch : state.aim?.pitch;
+  if ((state.manual || (target?.alive && state.aim)) && desiredYaw !== undefined) {
+    const errYaw = wrapPi(desiredYaw - state.yaw);
+    const errPitch = desiredPitch - state.pitch;
     const yawCtl = slewAxis(errYaw, state.yawVel, state.driveYaw, 0, dt);
     const gravity = B.gravityMoment(state.barrel, state.caliber, state.pitch);
     const pitchCtl = slewAxis(errPitch, state.pitchVel, state.driveElev, gravity, dt);
@@ -771,7 +814,8 @@ function update(dt) {
     const yawGate = 0.0006;
     const pitchGate = state.build.elevStalled ? 1.2 : 0.0006;
     const settled = Math.abs(state.yawVel) < 0.06 && Math.abs(state.pitchVel) < 0.06;
-    if (state.queued && state.cycle === 0 && state.reload === 0 && settled && Math.abs(errYaw) < yawGate && Math.abs(errPitch) < pitchGate) fire();
+    const aligned = state.manual || (Math.abs(errYaw) < yawGate && Math.abs(errPitch) < pitchGate);
+    if (state.queued && state.cycle === 0 && state.reload === 0 && settled && aligned) fire();
   }
   for (let i = state.shots.length - 1; i >= 0; i--) {
     const shot = state.shots[i];
@@ -815,6 +859,25 @@ function update(dt) {
       finishShot(shot, true);
     }
   }
+  if (state.manual) {
+    if (layKeys.KeyA) state.manualYaw += state.driveYaw.omegaMax * 0.9 * dt;
+    if (layKeys.KeyD) state.manualYaw -= state.driveYaw.omegaMax * 0.9 * dt;
+    if (layKeys.KeyW) state.manualPitch = Math.min(1.25, state.manualPitch + state.driveElev.omegaMax * dt);
+    if (layKeys.KeyS) state.manualPitch = Math.max(-0.05, state.manualPitch - state.driveElev.omegaMax * dt);
+  }
+  updateCases(dt);
+  if (state.followDelay > 0) {
+    state.followDelay -= dt;
+    if (state.followDelay <= 0) rig.setMode('follow');
+  }
+  if (state.plotHold > 0) {
+    state.plotHold -= dt;
+    if (state.plotHold <= 0 && rig.mode === 'plot') rig.setMode('aim');
+  }
+  if (state.returnDelay > 0) {
+    state.returnDelay -= dt;
+    if (state.returnDelay <= 0 && rig.mode === 'plot') rig.setMode('aim');
+  }
   updateCamera(dt);
   for (let i = state.effects.length - 1; i >= 0; i--) {
     const effect = state.effects[i];
@@ -847,16 +910,20 @@ function update(dt) {
 }
 function updateTrailLine() {
   if (state.trailPts.length < 2) return;
-  if (!state.trailLine) {
-    state.trailLine = new THREE.Line(new THREE.BufferGeometry(), new THREE.LineBasicMaterial({ color: '#2de5ca' }));
-    scene.add(state.trailLine);
-    if (state.vacPts.length > 1) {
-      state.vacLine = new THREE.Line(new THREE.BufferGeometry().setFromPoints(state.vacPts), new THREE.LineDashedMaterial({ color: '#5d7d86', dashSize: 150, gapSize: 90 }));
-      state.vacLine.computeLineDistances();
-      scene.add(state.vacLine);
-    }
+  if (state.trailLine) {
+    scene.remove(state.trailLine);
+    state.trailLine.geometry.dispose();
+    state.trailLine.material.dispose();
   }
-  state.trailLine.geometry.setFromPoints(state.trailPts);
+  const span = state.trailPts[state.trailPts.length - 1].distanceTo(state.trailPts[0]);
+  const curve = new THREE.CatmullRomCurve3(state.trailPts);
+  state.trailLine = new THREE.Mesh(new THREE.TubeGeometry(curve, Math.min(220, state.trailPts.length * 2), Math.max(4, span * 0.004), 8, false), new THREE.MeshBasicMaterial({ color: '#4dffe0' }));
+  scene.add(state.trailLine);
+  if (!state.vacLine && state.vacPts.length > 1) {
+    state.vacLine = new THREE.Line(new THREE.BufferGeometry().setFromPoints(state.vacPts), new THREE.LineDashedMaterial({ color: '#5d7d86', dashSize: 150, gapSize: 90 }));
+    state.vacLine.computeLineDistances();
+    scene.add(state.vacLine);
+  }
 }
 function resize() {
   const width = wrap.clientWidth, height = wrap.clientHeight;
@@ -877,6 +944,8 @@ function resize() {
   }
 }
 function render() { resize(); renderer.render(scene, camera); }
+window.__scene = () => ({ turretChildren: turretBase.children.length, barrelChildren: barrel.children.length, barrelBody: !!barrelBody, turretVisible: turretBase.visible, azimuthChildren: azimuth.children.length });
+window.__cam = () => ({ pos: camera.position.toArray().map((v) => Math.round(v)), look: rig.mode, target: targets[state.selected]?.name, yaw: Number(state.yaw.toFixed(2)), pitch: Number(state.pitch.toFixed(3)) });
 window.__project = (x, y, z) => {
   const v = new THREE.Vector3(x, y, z).project(camera);
   const rect = canvas.getBoundingClientRect();
