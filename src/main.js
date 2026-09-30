@@ -1,17 +1,18 @@
 import * as THREE from 'three';
 import RAPIER from '@dimforge/rapier3d-compat';
 import * as B from './ballistics.js';
+import { createCameraRig } from './camera-rig.js';
 import './style.css';
 
 await RAPIER.init();
 const physics = new RAPIER.World({ x: 0, y: -9.81, z: 0 });
 physics.timestep = 1 / 60;
-physics.createCollider(RAPIER.ColliderDesc.cuboid(60, 0.2, 60).setTranslation(0, -0.2, 0));
+physics.createCollider(RAPIER.ColliderDesc.cuboid(90000, 0.2, 90000).setTranslation(0, -0.2, 0));
 let physicsTime = 0;
 
 const canvas = document.querySelector('#game-canvas');
 const wrap = document.querySelector('#scene-wrap');
-const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, logarithmicDepthBuffer: true });
 renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
@@ -21,8 +22,8 @@ renderer.toneMappingExposure = 1.35;
 
 const scene = new THREE.Scene();
 scene.background = new THREE.Color('#101d29');
-scene.fog = new THREE.Fog('#101d29', 30, 85);
-const camera = new THREE.PerspectiveCamera(50, 1, 0.1, 110);
+scene.fog = new THREE.Fog('#101d29', 6000, 130000);
+const camera = new THREE.PerspectiveCamera(50, 1, 1, 400000);
 camera.position.set(0, 9, 18);
 camera.lookAt(0, 1.5, -7);
 scene.add(new THREE.HemisphereLight(0xb9e7ff, 0x28313a, 2.1));
@@ -42,16 +43,16 @@ const steel = mat('#4c6672', 0.75, 0.35);
 const edge = mat('#90aeb3', 0.62, 0.38);
 const teal = new THREE.MeshStandardMaterial({ color: '#2de5ca', emissive: '#0b9a82', emissiveIntensity: 0.35, metalness: 0.2 });
 const orange = new THREE.MeshStandardMaterial({ color: '#ffb367', emissive: '#9d481e', emissiveIntensity: 0.3 });
-const ground = new THREE.Mesh(new THREE.PlaneGeometry(120, 120), mat('#253b41'));
+const ground = new THREE.Mesh(new THREE.PlaneGeometry(180000, 180000), mat('#253b41'));
 ground.rotation.x = -Math.PI / 2;
 ground.receiveShadow = true;
 scene.add(ground);
-const grid = new THREE.GridHelper(120, 60, '#45636a', '#385058');
+const grid = new THREE.GridHelper(180000, 180, '#45636a', '#385058');
 grid.position.y = 0.012;
 scene.add(grid);
-for (let i = 0; i < 5; i++) {
-  const stripe = new THREE.Mesh(new THREE.BoxGeometry(35, 0.018, 0.045), mat('#47737a'));
-  stripe.position.set(0, 0.025, -7 - i * 7);
+for (const km of [10, 20, 30]) {
+  const stripe = new THREE.Mesh(new THREE.BoxGeometry(120000, 2, 50), mat('#47737a'));
+  stripe.position.set(0, 0.03, -km * 1000);
   scene.add(stripe);
 }
 
@@ -125,13 +126,17 @@ function rebuildBarrel() {
 }
 
 const specs = [
-  { name: 'HEX PLATE', shape: 'hex', tier: 'LIGHT', hp: 2, x: -12, z: -14, color: '#4ce1d2' },
-  { name: 'CORE BLOCK', shape: 'block', tier: 'HEAVY', hp: 4, x: -6.5, z: -21, color: '#ffbc75' },
-  { name: 'RING', shape: 'ring', tier: 'LIGHT', hp: 2, x: 0.5, z: -15, color: '#75d8ff' },
-  { name: 'WEDGE', shape: 'wedge', tier: 'MEDIUM', hp: 3, x: 6.5, z: -22, color: '#ed91a8' },
-  { name: 'TOWER', shape: 'tower', tier: 'HEAVY', hp: 4, x: 12, z: -16, color: '#d2b6ff' },
-  { name: 'DISC', shape: 'disc', tier: 'MEDIUM', hp: 3, x: 3.5, z: -29, color: '#b2df8c' },
+  { name: 'HEX PLATE', shape: 'hex', tier: 'LIGHT', hp: 2, rangeM: 6500, azDeg: -14, color: '#4ce1d2' },
+  { name: 'CORE BLOCK', shape: 'block', tier: 'HEAVY', hp: 4, rangeM: 10500, azDeg: 5, color: '#ffbc75' },
+  { name: 'RING', shape: 'ring', tier: 'LIGHT', hp: 2, rangeM: 14500, azDeg: 15, color: '#75d8ff' },
+  { name: 'WEDGE', shape: 'wedge', tier: 'MEDIUM', hp: 3, rangeM: 19000, azDeg: -7, color: '#ed91a8' },
+  { name: 'TOWER', shape: 'tower', tier: 'HEAVY', hp: 4, rangeM: 24000, azDeg: 9, color: '#d2b6ff' },
+  { name: 'DISC', shape: 'disc', tier: 'MEDIUM', hp: 3, rangeM: 28500, azDeg: -18, color: '#b2df8c' },
 ];
+specs.forEach((spec) => {
+  spec.x = Math.sin(spec.azDeg * Math.PI / 180) * spec.rangeM;
+  spec.z = 5.5 - Math.cos(spec.azDeg * Math.PI / 180) * spec.rangeM;
+});
 const targets = [];
 const targetMeshes = [];
 function targetShape(spec, group) {
@@ -175,6 +180,7 @@ function targetShape(spec, group) {
 specs.forEach((spec, id) => {
   const group = new THREE.Group();
   group.position.set(spec.x, 0, spec.z);
+  group.scale.setScalar(20);
   scene.add(group);
   const halo = targetShape(spec, group);
   group.traverse((child) => { if (child.isMesh && child !== halo) { child.userData.targetId = id; targetMeshes.push(child); } });
@@ -187,18 +193,24 @@ const state = {
   yaw: 0, pitch: 0, yawVel: 0, pitchVel: 0, recoil: 0, recoilScale: 1,
   shots: [], effects: [], debris: [], toast: '', toastTime: 0,
   build: null, driveYaw: null, driveElev: null, aim: null, aimKey: '', aimAge: 0, warned: '',
+  report: null, trailPts: [], trailLine: null,
 };
 rebuildBarrel();
 const raycaster = new THREE.Raycaster();
 const pointer = new THREE.Vector2();
 const targetList = document.querySelector('#target-list');
-function targetCenter(target) { return new THREE.Vector3(target.x, target.shape === 'tower' ? 2.6 : 1.9, target.z); }
+const rig = createCameraRig(camera);
+const aimPos = new THREE.Vector3(0, 9, 18);
+const aimLook = new THREE.Vector3(0, 1.5, -7);
+rig.setAimView(aimPos, aimLook);
+function targetCenter(target) { return new THREE.Vector3(target.x, (target.shape === 'tower' ? 2.6 : 1.9) * 20, target.z); }
 function selectTarget(id) {
   if (!targets[id]?.alive) return;
   state.selected = id;
   state.queued = false;
   state.warned = '';
   state.aimKey = '';
+  rig.setMode('aim');
   refreshUI();
 }
 function nextTarget() {
@@ -208,11 +220,15 @@ function nextTarget() {
   }
 }
 function announce(message) { state.toast = message; state.toastTime = 1.5; }
+function rollWind() {
+  B.setWind(2 + Math.random() * 16, Math.random() * Math.PI * 2);
+  refreshDerived();
+}
 function rebuildStats() {
   state.build = B.deriveBuild(state.caliber, state.barrel, state.magazine, state.rounds);
   state.driveYaw = B.driveYaw(state.build.inertiaYaw);
   state.driveElev = B.driveElev(state.build.inertiaElev, B.gravityMoment(state.barrel, state.caliber, 0));
-  document.querySelector('#reload-preview').textContent = `Refill ${state.build.reloadS.toFixed(1)} s · more rounds, longer refill · new slots fill on reload`;
+  document.querySelector('#reload-preview').textContent = `Refill ${fmtRange(state.build.reloadS)}s · more rounds, longer refill · new slots fill on reload`;
   refreshDerived();
 }
 function reload() {
@@ -248,9 +264,10 @@ function refreshAim(dt) {
   const target = targets[state.selected];
   if (!target?.alive) { state.aim = null; return; }
   const key = `${state.selected}|${state.caliber}|${state.barrel}|${state.mode}`;
-  if (key === state.aimKey && state.aimAge > 0) return;
+  if (key === state.aimKey && state.aim) return;
+  if (state.aimAge > 0) return;
   state.aimKey = key;
-  state.aimAge = 0.2;
+  state.aimAge = 0.15;
   const tc = targetCenter(target);
   let yaw = Math.atan2(-(tc.x - axisPoint.x), -(tc.z - axisPoint.z));
   let pitch = Math.atan2(tc.y - axisPoint.y, Math.hypot(tc.x - axisPoint.x, tc.z - axisPoint.z));
@@ -259,7 +276,7 @@ function refreshAim(dt) {
     const s = B.solveAim(muzzleAt(yaw, pitch, new THREE.Vector3()), { x: tc.x, y: tc.y, z: tc.z }, state.caliber, state.barrel, state.mode);
     if (!s) break;
     sol = s;
-    if (Math.abs(s.yaw - yaw) < 1e-4 && Math.abs(s.pitch - pitch) < 1e-4) break;
+    if (Math.abs(s.yaw - yaw) < 1e-5 && Math.abs(s.pitch - pitch) < 1e-5) break;
     yaw = s.yaw;
     pitch = s.pitch;
   }
@@ -271,9 +288,10 @@ function slewAxis(err, vel, drive, gravity, dt) {
   const tauCap = Math.min(drive.tauMax, drive.pMax / Math.max(Math.abs(vel), 0.15));
   const climb = (tauCap - gravity - drive.drag) / drive.inertia;
   const sink = (tauCap + gravity - drive.drag) / drive.inertia;
-  const alpha = err >= 0 ? climb : sink;
-  const cmd = Math.sign(err) * Math.min(drive.omegaMax, Math.sqrt(2 * Math.max(alpha, 0.02) * 0.8 * Math.abs(err)));
-  const next = vel + THREE.MathUtils.clamp(cmd - vel, -Math.abs(alpha) * dt, Math.abs(alpha) * dt);
+  const stop = Math.max(vel > 0 ? sink : climb, 0.02);
+  const cmd = Math.sign(err) * Math.min(drive.omegaMax, Math.sqrt(2 * stop * 0.8 * Math.abs(err)), (0.8 * Math.abs(err)) / dt);
+  const alpha = Math.max(err >= 0 ? climb : sink, 0.02);
+  const next = vel + THREE.MathUtils.clamp(cmd - vel, -alpha * dt, alpha * dt);
   return { vel: next, blocked: err > 0 && climb <= 0 };
 }
 
@@ -281,6 +299,24 @@ const IMPULSE_REF = B.recoilImpulse(60, 4, 'focused') / 1000;
 const _dir = new THREE.Vector3();
 const _right = new THREE.Vector3();
 const _upv = new THREE.Vector3();
+const SHELL_SCALE = 40;
+function makeShellMesh(caliberMM, mode) {
+  const r = caliberMM / 2000 * SHELL_SCALE;
+  const bodyLen = r * 5.2;
+  const group = new THREE.Group();
+  const shellMat = new THREE.MeshStandardMaterial({ color: mode === 'burst' ? '#ffc486' : '#8dfdf1', emissive: mode === 'burst' ? '#7a4312' : '#0b6e60', emissiveIntensity: 0.7, metalness: 0.5, roughness: 0.4 });
+  const body = new THREE.Mesh(new THREE.CylinderGeometry(r, r * 0.92, bodyLen, 14), shellMat);
+  body.rotation.x = -Math.PI / 2;
+  body.position.z = -bodyLen * 0.35;
+  const nose = new THREE.Mesh(new THREE.ConeGeometry(r * 0.98, r * 3.1, 14), shellMat);
+  nose.rotation.x = -Math.PI / 2;
+  nose.position.z = -(bodyLen * 0.85 + r * 1.55);
+  const band = new THREE.Mesh(new THREE.CylinderGeometry(r * 1.03, r * 1.03, bodyLen * 0.1, 14), new THREE.MeshStandardMaterial({ color: '#b8894a', metalness: 0.8, roughness: 0.4 }));
+  band.rotation.x = -Math.PI / 2;
+  band.position.z = -bodyLen * 0.05;
+  group.add(body, nose, band);
+  return group;
+}
 function fire() {
   const target = targets[state.selected];
   const mode = state.mode;
@@ -288,21 +324,24 @@ function fire() {
   pivot.updateWorldMatrix(true, true);
   const origin = pivot.localToWorld(muzzleLocal.clone());
   const v0Real = B.muzzleVelocity(state.barrel) * m.velFrac;
-  const v0 = v0Real * B.PHYS.V_SCALE;
-  _dir.copy(state.aim.dir);
+  const launchPitch = state.build.elevStalled ? state.pitch : state.aim.pitch;
+  _dir.copy(B.launchDir(state.aim.yaw, launchPitch));
   const angSigma = B.PHYS.SIGMA_ANG * (1 + (state.build.recoilRatio < B.PHYS.REC_OVERLOAD ? 2 : 0) + 2.5 * (Math.abs(state.yawVel) + Math.abs(state.pitchVel)));
   _right.copy(_dir).cross(_upAxis).normalize();
   _upv.copy(_right).cross(_dir).normalize();
   _dir.addScaledVector(_right, B.gauss() * angSigma).addScaledVector(_upv, B.gauss() * angSigma).normalize();
-  const speed = v0 * (1 + B.gauss() * B.PHYS.SIGMA_V * (1 + state.temp / 200));
+  const speed = v0Real * (1 + B.gauss() * B.PHYS.SIGMA_V * (1 + state.temp / 200));
   _dir.multiplyScalar(speed);
-  const mesh = new THREE.Mesh(new THREE.SphereGeometry(0.1 + 0.14 * (state.caliber / 100) ** (1 / 3), 12, 8), new THREE.MeshBasicMaterial({ color: mode === 'burst' ? '#ffc486' : '#8dfdf1' }));
+  const mesh = makeShellMesh(state.caliber, mode);
   mesh.position.copy(origin);
   scene.add(mesh);
+  const tc = targetCenter(target);
   state.shots.push({
     mesh, pos: { x: origin.x, y: origin.y, z: origin.z }, vel: { x: _dir.x, y: _dir.y, z: _dir.z },
     mass: B.projectileMass(state.caliber) * m.massFrac, area: B.frontalArea(state.caliber),
-    v0Scene: v0, v0Real, targetId: target.id, mode, age: 0,
+    v0Launch: speed, v0Real, targetId: target.id, mode, age: 0, apexY: origin.y,
+    timeScale: THREE.MathUtils.clamp((state.aim?.flightTime ?? 30) / 7, 3, 30),
+    startX: origin.x, startZ: origin.z, aimedM: Math.hypot(tc.x - origin.x, tc.z - origin.z), remain: 0, trailAcc: 0,
   });
   state.rounds--;
   state.cycle = mode === 'focused' ? state.build.cooldownS : state.build.burstCooldownS;
@@ -312,20 +351,23 @@ function fire() {
   if (state.build.recoilRatio < B.PHYS.REC_OVERLOAD && state.warned !== 'overload') { announce('RECOIL OVERLOAD'); state.warned = 'overload'; }
   state.queued = false;
   if (state.rounds === 0) announce('MAGAZINE EMPTY · PRESS R');
+  clearTrail();
+  state.report = null;
+  rig.setMode('follow');
   rebuildStats();
   refreshUI();
 }
 function scatterTarget(target) {
   const center = targetCenter(target);
   for (let i = 0; i < 3; i++) {
-    const size = 0.58 + i * 0.14;
+    const size = 4 + i * 2.4;
     const mesh = new THREE.Mesh(new THREE.BoxGeometry(size, size, size), mat(target.color, 0.25, 0.5));
     mesh.castShadow = true;
-    mesh.position.set(center.x + (i - 1) * 0.55, center.y + i * 0.25, center.z);
+    mesh.position.set(center.x + (i - 1) * 10, center.y + i * 5, center.z);
     scene.add(mesh);
     const body = physics.createRigidBody(RAPIER.RigidBodyDesc.dynamic().setTranslation(mesh.position.x, mesh.position.y, mesh.position.z));
     physics.createCollider(RAPIER.ColliderDesc.cuboid(size / 2, size / 2, size / 2).setFriction(0.8).setRestitution(0.2), body);
-    body.applyImpulse({ x: (i - 1) * 0.24, y: 0.32 + i * 0.1, z: -0.35 }, true);
+    body.applyImpulse({ x: (i - 1) * 4, y: 7 + i * 2, z: -6 }, true);
     state.debris.push({ mesh, body });
   }
 }
@@ -344,40 +386,68 @@ function hit(target, damage) {
     if (targets.every((item) => !item.alive)) announce('RANGE CLEARED · RESET TO PLAY AGAIN');
   } else announce(`${target.name} HIT +40`);
 }
+function clearTrail() {
+  if (state.trailLine) {
+    scene.remove(state.trailLine);
+    state.trailLine.geometry.dispose();
+    state.trailLine.material.dispose();
+    state.trailLine = null;
+  }
+  state.trailPts = [];
+}
 const _hitPos = new THREE.Vector3();
-function impact(shot) {
+function finishShot(shot, hitGround) {
   const target = targets[shot.targetId];
   const speed = Math.hypot(shot.vel.x, shot.vel.y, shot.vel.z);
   const armor = B.PHYS.ARMOR[target.tier];
-  const r = B.impactResult(speed, shot.v0Scene, shot.v0Real, state.caliber, shot.mode, armor);
-  if (target.alive) hit(target, B.kineticDamage(r.energyJ, r.pen, armor));
-  let radius = 1.2;
-  if (shot.mode === 'burst') {
-    radius = B.splashRadius(state.caliber);
+  const r = B.impactResult(speed, shot.v0Launch, state.caliber, shot.mode, armor);
+  const hitRadius = B.splashRadius(state.caliber) * 1.5 + 25;
+  const tc = targetCenter(target);
+  const deviation = Math.hypot(shot.pos.x - tc.x, shot.pos.z - tc.z);
+  const report = {
+    muzzleMs: Math.round(shot.v0Real),
+    launchMs: Math.round(shot.v0Launch),
+    apexM: Math.round(shot.apexY),
+    flightS: Number(shot.age.toFixed(1)),
+    rangeM: Math.round(Math.hypot(shot.pos.x - shot.startX, shot.pos.z - shot.startZ)),
+    aimedM: Math.round(shot.aimedM),
+    deviationM: Math.round(deviation),
+    impactMs: Math.round(speed),
+    energyMJ: (r.energyJ / 1e6).toFixed(2),
+    hit: target.alive && deviation < hitRadius,
+    windMs: B.windSpeed().toFixed(1),
+    windDeg: Math.round((B.windHeading() * 180 / Math.PI + 360) % 360),
+    mode: shot.mode,
+  };
+  const direct = target.alive && deviation < hitRadius;
+  if (direct) hit(target, B.kineticDamage(r.energyJ, r.pen, armor));
+  const radius = B.splashRadius(state.caliber);
+  if (shot.mode === 'burst' || direct) {
     _hitPos.set(shot.pos.x, shot.pos.y, shot.pos.z);
     for (const other of targets) {
-      if (other.id === target.id || !other.alive) continue;
+      if (!other.alive) continue;
       const d = targetCenter(other).distanceTo(_hitPos);
-      if (d < radius) hit(other, B.splashDamage(state.caliber, d));
+      if (d < radius && (shot.mode === 'burst' || other.id !== target.id)) hit(other, B.splashDamage(state.caliber, d));
     }
   }
+  state.report = report;
+  rig.setMode('plot');
   const pulse = new THREE.Mesh(new THREE.SphereGeometry(1, 20, 12), new THREE.MeshBasicMaterial({ color: shot.mode === 'burst' ? '#ffaf6f' : '#6fffe4', transparent: true, opacity: 0.6, wireframe: true }));
-  pulse.position.set(shot.pos.x, shot.pos.y, shot.pos.z);
+  pulse.position.set(shot.pos.x, Math.max(shot.pos.y, 2), shot.pos.z);
   scene.add(pulse);
-  state.effects.push({ mesh: pulse, age: 0, mode: shot.mode, max: shot.mode === 'burst' ? radius : 2 });
+  state.effects.push({ mesh: pulse, age: 0, mode: shot.mode, max: Math.max(30, radius) });
   refreshUI();
 }
 function groundPuff(shot) {
   const pulse = new THREE.Mesh(new THREE.SphereGeometry(1, 12, 8), new THREE.MeshBasicMaterial({ color: '#9db4b8', transparent: true, opacity: 0.4, wireframe: true }));
-  pulse.position.set(shot.pos.x, 0.3, shot.pos.z);
+  pulse.position.set(shot.pos.x, 3, shot.pos.z);
   scene.add(pulse);
-  state.effects.push({ mesh: pulse, age: 0, mode: 'ground', max: 1.4 });
+  state.effects.push({ mesh: pulse, age: 0, mode: 'ground', max: 40 });
 }
 function removeShot(index) {
   const shot = state.shots[index];
   scene.remove(shot.mesh);
-  shot.mesh.geometry.dispose();
-  shot.mesh.material.dispose();
+  shot.mesh.traverse((child) => child.geometry?.dispose());
   state.shots.splice(index, 1);
 }
 function reset() {
@@ -395,15 +465,20 @@ function reset() {
   state.selected = 0; state.rounds = state.magazine; state.score = 0; state.hits = 0;
   state.cycle = 0; state.reload = 0; state.temp = 0; state.queued = false;
   state.yawVel = 0; state.pitchVel = 0; state.warned = ''; state.aimKey = '';
-  announce('RANGE RESET');
+  state.report = null;
+  clearTrail();
+  rig.setMode('aim');
+  rollWind();
+  announce('RANGE RESET · NEW WIND');
   rebuildStats();
   refreshUI();
 }
 const fmtKg = (kg) => (kg >= 1000 ? `${(kg / 1000).toFixed(1)} t` : kg >= 100 ? `${kg.toFixed(0)} kg` : kg >= 10 ? `${kg.toFixed(1)} kg` : `${kg.toFixed(2)} kg`);
 const fmtEnergy = (kj) => (kj >= 1e6 ? `${(kj / 1e6).toFixed(2)} GJ` : kj >= 1000 ? `${(kj / 1000).toFixed(1)} MJ` : `${Math.round(kj)} kJ`);
+const fmtRange = (m) => (m >= 1000 ? `${(m / 1000).toFixed(1)} km` : `${Math.round(m)} m`);
 function refreshDerived() {
   const b = state.build;
-  const wind = Math.hypot(B.PHYS.WIND.x, B.PHYS.WIND.z).toFixed(1);
+  const windDeg = Math.round((B.windHeading() * 180 / Math.PI + 360) % 360);
   const rows = [
     ['PROJECTILE', fmtKg(b.projectileKg)],
     ['ROUND', fmtKg(b.roundKg)],
@@ -419,10 +494,29 @@ function refreshDerived() {
     ['ELEVATION', b.elevStalled ? 'OVERLOAD' : 'OK'],
     ['SHOT CYCLE', `${b.cooldownS.toFixed(2)} s`],
     ['SUSTAINED ROF', `${b.sustainedRof < 10 ? b.sustainedRof.toFixed(1) : Math.round(b.sustainedRof)} rpm`],
-    ['EFFECTIVE RANGE', `${Math.round(b.effectiveRangeM)} m`],
-    ['WIND', `${wind} u/s →`],
+    ['EFFECTIVE RANGE', fmtRange(b.effectiveRangeM)],
+    ['WIND', `${B.windSpeed().toFixed(1)} m/s @ ${windDeg}°`],
   ];
   document.querySelector('#derived-stats').innerHTML = rows.map(([k, v]) => `<div class="stat"><span>${k}</span><b>${v}</b></div>`).join('');
+}
+function refreshReport() {
+  const el = document.querySelector('#shot-report');
+  const r = state.report;
+  if (!r || rig.mode !== 'plot') { el.style.display = 'none'; return; }
+  el.style.display = 'grid';
+  const rows = [
+    ['MODE', r.mode.toUpperCase()],
+    ['MUZZLE / LAUNCH', `${r.muzzleMs} / ${r.launchMs} m/s`],
+    ['MAX ALTITUDE', fmtRange(r.apexM)],
+    ['FLIGHT TIME', `${r.flightS} s`],
+    ['AIMED RANGE', fmtRange(r.aimedM)],
+    ['ACTUAL RANGE', fmtRange(r.rangeM)],
+    ['DEVIATION', `${r.deviationM} m`],
+    ['IMPACT VELOCITY', `${r.impactMs} m/s`],
+    ['IMPACT ENERGY', `${r.energyMJ} MJ`],
+    ['WIND', `${r.windMs} m/s @ ${r.windDeg}°`],
+  ];
+  el.innerHTML = `<div class="report-title">${r.hit ? 'TARGET HIT' : 'SHOT LANDED'}</div>` + rows.map(([k, v]) => `<div class="stat"><span>${k}</span><b>${v}</b></div>`).join('');
 }
 function refreshStatus() {
   document.querySelector('#score').textContent = state.score;
@@ -437,7 +531,7 @@ function refreshStatus() {
 const fmtHp = (h) => (Number.isInteger(h) ? h : h.toFixed(1));
 function refreshUI() {
   refreshStatus();
-  targetList.innerHTML = targets.map((target) => `<button class="target-item ${target.id === state.selected ? 'selected' : ''} ${target.alive ? '' : 'cleared'}" data-id="${target.id}" ${target.alive ? '' : 'disabled'}><span class="target-swatch" style="--swatch:${target.color}"></span><span class="target-name">${target.name}<small>${target.tier} · ${fmtHp(target.hp)}/${target.maxHp} integrity</small></span><span class="target-arrow">${target.alive ? '↗' : '✓'}</span></button>`).join('');
+  targetList.innerHTML = targets.map((target) => `<button class="target-item ${target.id === state.selected ? 'selected' : ''} ${target.alive ? '' : 'cleared'}" data-id="${target.id}" ${target.alive ? '' : 'disabled'}><span class="target-swatch" style="--swatch:${target.color}"></span><span class="target-name">${target.name}<small>${target.tier} · ${(target.rangeM / 1000).toFixed(1)} km · ${fmtHp(target.hp)}/${target.maxHp} integrity</small></span><span class="target-arrow">${target.alive ? '↗' : '✓'}</span></button>`).join('');
 }
 targetList.addEventListener('click', (event) => {
   const button = event.target.closest('[data-id]');
@@ -487,7 +581,6 @@ window.addEventListener('keydown', (event) => {
   if (event.code === 'Escape' && document.fullscreenElement) document.exitFullscreen();
 });
 
-const desired = new THREE.Vector3();
 function update(dt) {
   state.cycle = Math.max(0, state.cycle - dt);
   state.temp = Math.max(0, state.temp - state.build.coolRate * dt);
@@ -518,31 +611,65 @@ function update(dt) {
     }
     azimuth.rotation.y = state.yaw;
     pivot.rotation.x = state.pitch;
-    if (state.queued && state.cycle === 0 && state.reload === 0 && Math.abs(errYaw) < 0.05 && Math.abs(errPitch) < 0.05) fire();
+    const yawGate = 0.0006;
+    const pitchGate = state.build.elevStalled ? 1.2 : 0.0006;
+    const settled = Math.abs(state.yawVel) < 0.06 && Math.abs(state.pitchVel) < 0.06;
+    if (state.queued && state.cycle === 0 && state.reload === 0 && settled && Math.abs(errYaw) < yawGate && Math.abs(errPitch) < pitchGate) fire();
   }
+  const followShot = state.shots[0];
+  const _followVel = update._followVel ?? (update._followVel = new THREE.Vector3());
   for (let i = state.shots.length - 1; i >= 0; i--) {
     const shot = state.shots[i];
-    shot.age += dt;
-    let remain = dt;
-    while (remain > 0) {
-      const h = Math.min(1 / 240, remain);
+    const simDt = dt * shot.timeScale;
+    shot.age += simDt;
+    shot.remain += simDt;
+    while (shot.remain > 0) {
+      const h = Math.min(0.02, shot.remain);
       B.stepFlight(shot, h);
-      remain -= h;
+      shot.remain -= h;
+    }
+    if (shot.pos.y > shot.apexY) shot.apexY = shot.pos.y;
+    shot.trailAcc += simDt;
+    if (shot.trailAcc >= 0.25) {
+      shot.trailAcc = 0;
+      state.trailPts.push(new THREE.Vector3(shot.pos.x, shot.pos.y, shot.pos.z));
+      if (state.trailPts.length > 600) state.trailPts.shift();
+      updateTrailLine();
     }
     shot.mesh.position.set(shot.pos.x, shot.pos.y, shot.pos.z);
+    const speed = Math.hypot(shot.vel.x, shot.vel.y, shot.vel.z);
+    if (speed > 1) {
+      _dir.set(shot.vel.x / speed, shot.vel.y / speed, shot.vel.z / speed);
+      shot.mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, -1), _dir);
+    }
+    shot.mesh.scale.setScalar(THREE.MathUtils.clamp(camera.position.distanceTo(shot.mesh.position) * 0.004, 1, 8));
     const hitTarget = targets[shot.targetId];
     const tc = targetCenter(hitTarget);
     const dist = Math.hypot(shot.pos.x - tc.x, shot.pos.y - tc.y, shot.pos.z - tc.z);
-    if (hitTarget.alive && dist < 1.35) { removeShot(i); impact(shot); continue; }
-    if (shot.pos.y <= 0.05 || shot.age > 6) { removeShot(i); groundPuff(shot); }
+    if (hitTarget.alive && dist < B.splashRadius(state.caliber) * 1.5 + 25) {
+      state.trailPts.push(new THREE.Vector3(shot.pos.x, shot.pos.y, shot.pos.z));
+      updateTrailLine();
+      removeShot(i);
+      finishShot(shot, false);
+      continue;
+    }
+    if (shot.pos.y <= 0 || shot.age > 220) {
+      state.trailPts.push(new THREE.Vector3(shot.pos.x, Math.max(shot.pos.y, 0), shot.pos.z));
+      updateTrailLine();
+      removeShot(i);
+      finishShot(shot, true);
+    }
   }
+  if (rig.mode === 'follow' && followShot) rig.update(dt, { pos: followShot.mesh.position, vel: _followVel.set(followShot.vel.x, followShot.vel.y, followShot.vel.z) });
+  else if (rig.mode === 'plot') rig.update(dt, { points: state.trailPts });
+  else rig.update(dt, null);
   for (let i = state.effects.length - 1; i >= 0; i--) {
     const effect = state.effects[i];
     effect.age += dt;
-    const rate = effect.mode === 'burst' ? 12 : effect.mode === 'ground' ? 5 : 6;
-    effect.mesh.scale.setScalar(Math.min(effect.max, 0.25 + effect.age * rate));
-    effect.mesh.material.opacity = Math.max(0, 0.7 - effect.age * 1.5);
-    if (effect.age > 0.47) { scene.remove(effect.mesh); effect.mesh.geometry.dispose(); effect.mesh.material.dispose(); state.effects.splice(i, 1); }
+    const rate = effect.mode === 'burst' ? 120 : effect.mode === 'ground' ? 60 : 80;
+    effect.mesh.scale.setScalar(Math.min(effect.max, 2 + effect.age * rate));
+    effect.mesh.material.opacity = Math.max(0, 0.7 - effect.age * 1.2);
+    if (effect.age > 0.7) { scene.remove(effect.mesh); effect.mesh.geometry.dispose(); effect.mesh.material.dispose(); state.effects.splice(i, 1); }
   }
   physicsTime += dt;
   while (physicsTime >= physics.timestep) {
@@ -558,25 +685,35 @@ function update(dt) {
   targets.forEach((item) => {
     item.halo.material.color.set(item.id === state.selected && item.alive ? '#2de5ca' : '#476b73');
     item.halo.visible = item.alive;
-    if (item.flash > 0) { item.flash = Math.max(0, item.flash - dt); item.group.scale.setScalar(1 + Math.sin(item.flash * 20) * 0.05); }
-    else item.group.scale.setScalar(1);
+    if (item.flash > 0) { item.flash = Math.max(0, item.flash - dt); item.group.scale.setScalar(20 * (1 + Math.sin(item.flash * 20) * 0.05)); }
+    else item.group.scale.setScalar(20);
   });
   document.querySelector('#impact-toast').textContent = state.toastTime > 0 ? state.toast : '';
+  refreshReport();
   refreshStatus();
+}
+function updateTrailLine() {
+  if (state.trailPts.length < 2) return;
+  if (!state.trailLine) {
+    state.trailLine = new THREE.Line(new THREE.BufferGeometry(), new THREE.LineBasicMaterial({ color: '#2de5ca' }));
+    scene.add(state.trailLine);
+  }
+  state.trailLine.geometry.setFromPoints(state.trailPts);
 }
 function resize() {
   const width = wrap.clientWidth, height = wrap.clientHeight;
   if (canvas.width !== Math.round(width * renderer.getPixelRatio()) || canvas.height !== Math.round(height * renderer.getPixelRatio())) {
     renderer.setSize(width, height, false);
     camera.aspect = width / height;
-    if (camera.aspect < 1) {
-      camera.fov = 70;
-      camera.position.set(0, 9.5, 22);
-      camera.lookAt(0, 1.5, -9);
-    } else {
-      camera.fov = 50;
-      camera.position.set(0, 9, 18);
-      camera.lookAt(0, 1.5, -7);
+    if (rig.mode === 'aim') {
+      if (camera.aspect < 1) {
+        aimPos.set(0, 9.5, 22);
+        aimLook.set(0, 1.5, -9);
+      } else {
+        aimPos.set(0, 9, 18);
+        aimLook.set(0, 1.5, -7);
+      }
+      rig.setAimView(aimPos, aimLook);
     }
     camera.updateProjectionMatrix();
   }
@@ -584,24 +721,28 @@ function resize() {
 function render() { resize(); renderer.render(scene, camera); }
 window.advanceTime = (ms) => { const count = Math.max(1, Math.round(ms / (1000 / 60))); for (let i = 0; i < count; i++) update(1 / 60); render(); };
 window.render_game_to_text = () => JSON.stringify({
-  coordinates: 'x right, y up, z toward camera; abstract scene units',
+  coordinates: 'x right, y up, z toward camera; 1 unit = 1 meter, targets at km ranges',
+  view: rig.mode,
   selected: targets[state.selected]?.name ?? null,
   score: state.score, hits: state.hits, rounds: state.rounds, magazine: state.magazine,
   mode: state.mode, caliber: state.caliber, barrel: state.barrel,
   cooldown: Number(state.cycle.toFixed(2)), reload: Number(state.reload.toFixed(2)), heat: Number(state.temp.toFixed(1)), queued: state.queued,
+  wind: { ms: Number(B.windSpeed().toFixed(1)), deg: Math.round((B.windHeading() * 180 / Math.PI + 360) % 360) },
   shotsInFlight: state.shots.length,
-  shots: state.shots.map((s) => ({ x: Number(s.pos.x.toFixed(2)), y: Number(s.pos.y.toFixed(2)), z: Number(s.pos.z.toFixed(2)), speed: Number(Math.hypot(s.vel.x, s.vel.y, s.vel.z).toFixed(1)), mode: s.mode })),
+  shots: state.shots.map((s) => ({ x: Number(s.pos.x.toFixed(0)), y: Number(s.pos.y.toFixed(0)), z: Number(s.pos.z.toFixed(0)), speed: Number(Math.hypot(s.vel.x, s.vel.y, s.vel.z).toFixed(0)), mode: s.mode })),
+  report: state.report,
   derived: {
     projectileKg: Number(state.build.projectileKg.toFixed(2)), muzzleMs: Math.round(state.build.muzzleMs),
     cooldownS: Number(state.build.cooldownS.toFixed(2)), reloadS: Number(state.build.reloadS.toFixed(2)),
     sustainedRof: Number(state.build.sustainedRof.toFixed(1)), recoilRatio: Number(state.build.recoilRatio.toFixed(2)),
-    elevStalled: state.build.elevStalled, temp: Number(state.temp.toFixed(1)),
+    elevStalled: state.build.elevStalled, temp: Number(state.temp.toFixed(1)), effectiveRangeM: Math.round(state.build.effectiveRangeM),
   },
-  debris: state.debris.map(({ body }) => { const p = body.translation(); return { x: Number(p.x.toFixed(2)), y: Number(p.y.toFixed(2)), z: Number(p.z.toFixed(2)) }; }),
-  targets: targets.map(({ name, hp, maxHp, alive, x, z }) => ({ name, hp, maxHp, alive, x, z })),
+  debris: state.debris.map(({ body }) => { const p = body.translation(); return { x: Number(p.x.toFixed(1)), y: Number(p.y.toFixed(1)), z: Number(p.z.toFixed(1)) }; }),
+  targets: targets.map(({ name, hp, maxHp, alive, rangeM }) => ({ name, hp, maxHp, alive, rangeM })),
 });
 let last = performance.now();
 function frame(now) { const dt = Math.min((now - last) / 1000, 0.05); last = now; update(dt); render(); requestAnimationFrame(frame); }
 rebuildStats();
+rollWind();
 refreshUI();
 requestAnimationFrame(frame);

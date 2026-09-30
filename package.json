@@ -5,7 +5,8 @@
   "type": "module",
   "scripts": {
     "dev": "vite --host 127.0.0.1",
-    "build": "vite build"
+    "build": "vite build",
+    "test": "node --test tests/ballistics.test.js tests/calibration.test.js"
   },
   "dependencies": {
     "@dimforge/rapier3d-compat": "0.20.0",

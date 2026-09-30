@@ -6,20 +6,21 @@ Build a playable browser range with one configurable 3D turret, six distinct tar
 
 ## Simulation boundary
 
-This is a game prototype built on a normalized physics scaling model, not a real weapon simulator. Bore and barrel length drive derived behavior: projectile mass, muzzle velocity, energy, recoil, turret mass, inertia, drive response, reload, heat, and range. All constants are game-tuned scene values and must not be presented as real weapon performance.
+This is a game prototype built on a real-unit ballistics model, not a real weapon simulator. One scene unit is one meter. Bore and barrel length derive projectile mass (calibrated to published shell weights: 43.2 kg at 155 mm, 2.73 power law), muzzle velocity (saturating barrel-length curve, 803 m/s at 6 m versus 830 published for M795), energy, recoil, turret mass and inertia, drive response, reload, heat, and range. Targets sit at 6.5 to 28.5 km. All constants are game-tuned and must not be presented as real weapon performance.
 
 ## Design
 
 - Three.js owns the rendered scene and target meshes.
 - Rapier owns gravity and ground contact for decorative target debris after a target is cleared.
-- `src/ballistics.js` is a pure physics module implementing the scaling equations in `TURRET_PHYSICS_EQUATIONS.md`: cube-law projectile mass, saturating barrel-length velocity curve, D²×L barrel mass, kinetic energy, momentum-based recoil with capacity ratio and recovery, component-sum moment of inertia, torque/power-limited traverse and elevation drives with gravity moment and equilibrator balance, Mach-dependent drag with wind, semi-implicit flight integration, a fire-control aim solver (drop plus windage), ballistic efficiency, impact energy from actual impact velocity, empirical penetration against target armor tiers, explosive payload scaling, the bottleneck firing-rate model, heat per shot over barrel thermal mass with cooling power, and magazine/refill handling time.
-- `src/main.js` owns game state and presentation: derived stats rebuild on any control change, turret motors slew to the solver's ballistic aim solution, shots disperse from causal inputs (muzzle velocity variation, alignment while slewing, recoil overload), and damage lands from impact energy.
+- `src/sim/` is a pure physics layer split into interacting systems: `constants.js` (calibration, wind, RNG), `structure.js` (barrel mass, component-sum inertia, gravity moment, drives), `interior.js` (velocity, energy, recoil, thermal, logistics), `flight.js` (Mach drag with altitude density, wind, Heun integration, fire-control solver, envelope), `terminal.js` (impact energy, penetration, splash), `derived.js` (one build summary). `src/ballistics.js` re-exports it.
+- `src/camera-rig.js` owns the view state machine: aim view on the turret, follow camera chasing the shell (time-compressed flight), and a side plot view of the full trajectory arc after impact.
+- `src/main.js` owns game state and presentation: derived stats rebuild on control change, motors slew to the solved ballistic aim with settle gating, shots disperse from causal inputs (0.2 percent muzzle velocity variation, 0.1 degree alignment), the camera follows the shell, and a shot report shows muzzle/launch speed, apex, flight time, aimed versus actual range, deviation, impact velocity and energy, and wind.
+- Wind is rolled randomly per session (2 to 18 m/s), shown in the panel, and compensated by the fire-control solver; dispersion still produces realistic deviation at range.
 - One small state object owns game rules, ammo, selection, and projectiles.
 - Target shape, armor tier, and integrity come from six fixed range entries.
 - A single barrel group can be replaced later by a barrel layout. The module already accepts the concepts (component sums, per-mode rounds) without extra layout systems.
-- The barrel model keeps its wider tube, tapered rear sleeve, and rear collar as visual cues.
 
-Documented simplifications: the feed system is folded into loader handling, structural/balance factors are single aggregates, and flight runs in scene units with a fixed velocity scale so the real drag and gravity equations stay readable at game range. Coriolis, curvature, humidity, and other low-order effects stay out per the equations doc.
+Documented simplifications: the feed system is folded into loader handling, structural/balance factors are single aggregates, one propellant family drives the velocity curve (203 mm howitzers run about 24 percent hot), and dispersion is tighter than the published 139 m CEP so single shots stay playable. Coriolis, curvature, humidity, and other low-order effects stay out per the equations doc.
 
 ## Future game architecture
 

@@ -4,9 +4,41 @@ import * as B from '../src/ballistics.js'
 
 const { PHYS } = B
 
-test('projectile mass follows cube law', () => {
-  assert.ok(Math.abs(B.projectileMass(200) / B.projectileMass(100) - 8) < 0.001)
-  assert.ok(Math.abs(B.projectileMass(50) / B.projectileMass(100) - 0.125) < 0.001)
+test('projectile mass follows the research-calibrated 2.73 power law', () => {
+  assert.ok(Math.abs(B.projectileMass(200) / B.projectileMass(100) - 2 ** 2.73) < 0.001)
+})
+
+test('shell masses match public real-world data', () => {
+  assert.ok(Math.abs(B.projectileMass(155) - 43.2) < 2, `155mm ${B.projectileMass(155).toFixed(1)} kg (real M107 43.2)`)
+  assert.ok(Math.abs(B.projectileMass(105) - 14.97) < 1.5, `105mm ${B.projectileMass(105).toFixed(1)} kg (real M1 14.97)`)
+  assert.ok(Math.abs(B.projectileMass(203) - 90.7) < 9, `203mm ${B.projectileMass(203).toFixed(1)} kg (real M106 90.7)`)
+})
+
+test('real-world range calibration: 155mm 39-cal lands near 22.5 km', () => {
+  const r = B.effectiveRange(155, 6, 'focused')
+  assert.ok(r > 17000 && r < 27000, `155mm/6m envelope ${(r / 1000).toFixed(1)} km`)
+})
+
+test('km-scale fire control stays accurate', () => {
+  const sol = B.solveAim({ x: 0, y: 1.7, z: 0 }, { x: 0, y: 38, z: -20000 }, 155, 6, 'focused')
+  assert.ok(sol, 'no 20km solution')
+  const v = B.muzzleVelocity(6)
+  const p = { pos: { x: 0, y: 1.7, z: 0 }, vel: { x: sol.dir.x * v, y: sol.dir.y * v, z: sol.dir.z * v }, mass: B.projectileMass(155), area: B.frontalArea(155) }
+  let t = 0, prevAlong = 0, prevY = 1.7
+  while (t < 220) {
+    t += 0.02
+    B.stepFlight(p, 0.02)
+    const along = -p.pos.z
+    if (along >= 20000) {
+      const f = (20000 - prevAlong) / (along - prevAlong)
+      const yCross = prevY + (p.pos.y - prevY) * f
+      assert.ok(Math.abs(yCross - 38) < 10, `crossing error ${Math.abs(yCross - 38).toFixed(1)} m`)
+      break
+    }
+    if (p.pos.y <= 0) { assert.fail('hit ground before target') }
+    prevAlong = along
+    prevY = p.pos.y
+  }
 })
 
 test('muzzle velocity rises with diminishing returns', () => {
@@ -85,12 +117,13 @@ test('mach cd curve rises through transonic and falls supersonic', () => {
 
 test('wind shifts impact point laterally', () => {
   const drop = () => {
-    const p = { pos: { x: 0, y: 50, z: 0 }, vel: { x: 0, y: -10, z: 0 }, mass: 0.3, area: B.frontalArea(60) }
+    const p = { pos: { x: 0, y: 50, z: 0 }, vel: { x: 0, y: -10, z: 0 }, mass: 0.15, area: B.frontalArea(60) }
     while (p.pos.y > 0) B.stepFlight(p, 1 / 240)
     return p.pos.x
   }
-  const withWind = drop()
   const saved = PHYS.WIND.x
+  PHYS.WIND.x = 8
+  const withWind = drop()
   PHYS.WIND.x = 0
   const still = drop()
   PHYS.WIND.x = saved
@@ -107,25 +140,33 @@ test('solveAim hits the target for light and extreme builds', () => {
     const sol = B.solveAim(origin, target, cal, bar, mode)
     assert.ok(sol, `no solution for ${cal}mm`)
     const m = PHYS.MODE[mode]
-    const speed = B.muzzleVelocity(bar) * m.velFrac * PHYS.V_SCALE
+    const speed = B.muzzleVelocity(bar) * m.velFrac
     const p = { pos: { ...origin }, vel: { x: sol.dir.x * speed, y: sol.dir.y * speed, z: sol.dir.z * speed }, mass: B.projectileMass(cal) * m.massFrac, area: B.frontalArea(cal) }
     let t = 0
     const horiz = Math.hypot(target.x - origin.x, target.z - origin.z)
+    let prevAlong = 0, prevX = p.pos.x, prevY = p.pos.y, prevZ = p.pos.z
     while (t < 6) {
       B.stepFlight(p, 1 / 240)
       t += 1 / 240
       const along = ((p.pos.x - origin.x) * (target.x - origin.x) + (p.pos.z - origin.z) * (target.z - origin.z)) / horiz
-      if (along >= horiz) break
+      if (along >= horiz) {
+        const f = (horiz - prevAlong) / (along - prevAlong)
+        p.pos.x = prevX + (p.pos.x - prevX) * f
+        p.pos.z = prevZ + (p.pos.z - prevZ) * f
+        break
+      }
+      prevAlong = along
+      prevX = p.pos.x; prevY = p.pos.y; prevZ = p.pos.z
     }
     const miss = Math.hypot(p.pos.x - target.x, p.pos.z - target.z)
     assert.ok(miss < 0.2, `miss ${miss.toFixed(3)} for ${cal}mm`)
   }
-  assert.equal(B.solveAim({ x: 0, y: 1.7, z: 5.5 }, { x: 3.5, y: 1.9, z: -29 }, 12.5, 2, 'burst'), null, 'light burst shell cannot reach the far target')
+  assert.equal(B.solveAim({ x: 0, y: 1.7, z: 5.5 }, { x: 0, y: 38, z: -20000 }, 12.5, 2, 'burst'), null, 'light burst shell cannot reach 20 km')
 })
 
 test('impact energy is below muzzle energy at range', () => {
-  const v0Scene = B.muzzleVelocity(4) * PHYS.V_SCALE
-  const r = B.impactResult(v0Scene * 0.9, v0Scene, B.muzzleVelocity(4), 60, 'focused', 8)
+  const v0 = B.muzzleVelocity(4)
+  const r = B.impactResult(v0 * 0.9, v0, 60, 'focused', 8)
   const muzzleJ = 0.5 * B.projectileMass(60) * B.muzzleVelocity(4) ** 2
   assert.ok(r.energyJ < muzzleJ)
   assert.ok(r.retention > 0.8 && r.retention < 1)
@@ -167,6 +208,7 @@ test('extreme build is physically punished', () => {
   assert.ok(d.elevStalled || d.recoilMarginPct < 0)
   assert.ok(d.traverseAccelRad < 0.1)
   assert.ok(d.reloadS > 30)
+  assert.ok(d.projectileKg > 1500, `600mm shell ${d.projectileKg.toFixed(0)} kg`)
 })
 
 test('reference build tuning targets', () => {
@@ -187,7 +229,7 @@ test('reference build tuning targets', () => {
 test('effective range matches the fire-control envelope', () => {
   const range = B.effectiveRange(60, 4, 'focused')
   const inside = B.solveAim({ x: 0, y: 1.7, z: 0 }, { x: 0, y: 2, z: -(range - 2) }, 60, 4, 'focused')
-  const outside = B.solveAim({ x: 0, y: 1.7, z: 0 }, { x: 0, y: 2, z: -(range + 10) }, 60, 4, 'focused')
+  const outside = B.solveAim({ x: 0, y: 1.7, z: 0 }, { x: 0, y: 2, z: -(range + 500) }, 60, 4, 'focused')
   assert.ok(inside, `no solution inside envelope ${range.toFixed(1)}`)
   assert.equal(outside, null, `solution beyond envelope ${range.toFixed(1)}`)
 })
